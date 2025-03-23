@@ -11,9 +11,6 @@
 #include <map>
 #include <utility>
 
-RenderTexture2D renderTexture;
-Shader pixelShader;
-
 const char* vertex_shader_code =
 "#version 330 core                  \n"
 "in vec3 vertexPosition;     \n"
@@ -45,7 +42,7 @@ typedef enum {
 class ShaderUniformData {
     public:
     ShaderUniformType type;
-    bool isRange;
+    bool isRange = false;
     ShaderUniformData(ShaderUniformType t) : type(t) {}
     ShaderUniformData(ShaderUniformType t, bool r) : type(t), isRange(r) {}
     operator ShaderUniformType() {
@@ -76,15 +73,18 @@ typedef struct {
     bool isSet;
     float min, max;
 } Uniform;
+
+
 std::map<std::string, std::pair<unsigned int, ShaderUniformType>> shader_locs;
 #define IMAGE_NAME_BUFFER_LENGTH 512
 std::map<std::string, std::pair<char*, Texture2D>> image_uniform_buffers;
 std::map<std::string, Uniform> other_uniform_buffers;
+Image blankImage = GenImageColor(1, 1, WHITE);
+Texture2D blankTexture;
+RenderTexture2D renderTexture, selfTexture;
+Shader pixelShader;
 
 bool LoadPixelShader(const char* filename) {
-    if (IsShaderReady(pixelShader)) {
-        UnloadShader(pixelShader);
-    }
     std::ifstream fd(filename, std::ios::in | std::ios::binary);
     char* fragment_code;
     size_t len = 0;
@@ -100,11 +100,16 @@ bool LoadPixelShader(const char* filename) {
     if (len == 0) {
         return false;
     }
-    pixelShader = LoadShaderFromMemory(vertex_shader_code, fragment_code);
-    if (!IsShaderReady(pixelShader)) {
+    Shader newPixelShader = LoadShaderFromMemory(vertex_shader_code, fragment_code);
+    if (!IsShaderReady(newPixelShader)) {
         delete[] fragment_code;
         return false;
     }
+    if (IsShaderReady(pixelShader)) {
+        UnloadShader(pixelShader);
+    }
+    pixelShader = newPixelShader;
+
     typeof(other_uniform_buffers) new_other_uniform_buffers;
     shader_locs.clear();
     for (size_t i = 0; i < len; i++) {
@@ -148,28 +153,26 @@ bool LoadPixelShader(const char* filename) {
                                     if (eob >= len) {
                                         TraceLog(LOG_WARNING, "Missing closing bracket in range specifier for uniform \"%s\"", name.c_str());
                                     } else {
-                                        float mx = atof(&fragment_code[sob+1]);
-                                        while (fragment_code[sob] != ',' && sob < len) sob++;
-                                        if (sob < len) {
+                                        uni.max = atof(&fragment_code[sob+1]);
+                                        while (strchr(",\n", fragment_code[sob]) == nullptr && sob < eob) sob++;
+                                        if (fragment_code[sob] == ',') {
                                             // two numbers -> range X..Y
-                                            uni.min = mx;
+                                            uni.min = uni.max;
                                             uni.max = atof(&fragment_code[sob+1]);
                                         } else {
                                             // single number -> range 0..X
-                                            uni.max = mx;
                                         }
                                     }
                                 }
                             }
                             if (other_uniform_buffers.count(name) > 0) {
-                                if (new_other_uniform_buffers.count(name) > 0) {
-                                    Uniform uni2 = new_other_uniform_buffers[name];
-                                    uni.min = uni2.min;
-                                    uni.max = uni2.max;
-                                } else {
-                                    uni = other_uniform_buffers[name];
-                                    new_other_uniform_buffers.insert(std::make_pair(name, uni));
+                                if (new_other_uniform_buffers.count(name) < 1) {
+                                    Uniform uni2 = other_uniform_buffers[name];
+                                    uni2.min = uni.min;
+                                    uni2.max = uni.max;
+                                    uni = uni2;
                                 }
+                                new_other_uniform_buffers.insert(std::make_pair(name, uni));
                                 switch (p.second) {
                                     case FLOAT:
                                     case SLIDER:
@@ -198,33 +201,33 @@ bool LoadPixelShader(const char* filename) {
                                 }
                             } else {
                                 switch (p.second) {
-                                case FLOAT:
-                                    glGetUniformfv(pixelShader.id, loc, &uni.f);
-                                    break;
-                                case INT:
-                                    glGetUniformiv(pixelShader.id, loc, &uni.i);
-                                    break;
-                                case VEC2:
-                                case VEC3:
-                                case VEC4:
-                                case COLOR3:
-                                case COLOR4:
-                                case SLIDER:
-                                case SLIDER2:
-                                case SLIDER3:
-                                case SLIDER4:
-                                    glGetUniformfv(pixelShader.id, loc, (float*)&uni.v);
-                                    break;
-                                case SAMPLER2D:
-                                case UNKNOWN:
-                                    break;
+                                    case FLOAT:
+                                        glGetUniformfv(pixelShader.id, loc, &uni.f);
+                                        break;
+                                    case INT:
+                                        glGetUniformiv(pixelShader.id, loc, &uni.i);
+                                        break;
+                                    case VEC2:
+                                    case VEC3:
+                                    case VEC4:
+                                    case COLOR3:
+                                    case COLOR4:
+                                    case SLIDER:
+                                    case SLIDER2:
+                                    case SLIDER3:
+                                    case SLIDER4:
+                                        glGetUniformfv(pixelShader.id, loc, (float*)&uni.v);
+                                        break;
+                                    case SAMPLER2D:
+                                    case UNKNOWN:
+                                        break;
                                 }
                                 if (p.second < SAMPLER2D) {
                                     new_other_uniform_buffers.insert(std::make_pair(name, uni));
                                 }
                             }
                             if (p.second.isRange) {
-                                TraceLog(LOG_INFO, "found uniform %s %s (range %f to %f)", s.c_str(), name.c_str(), uni.min, uni.max);
+                                TraceLog(LOG_INFO, "found uniform %s %s (range %.3f to %.3f)", s.c_str(), name.c_str(), uni.min, uni.max);
                             } else {
                                 TraceLog(LOG_INFO, "found uniform %s %s", s.c_str(), name.c_str());
                             }
@@ -235,10 +238,94 @@ bool LoadPixelShader(const char* filename) {
             }
         }
     }
-    other_uniform_buffers.clear();
+    // other_uniform_buffers.clear();
     other_uniform_buffers = new_other_uniform_buffers;
     return true;
 }
+
+Texture2D LoadTextureFromString(const char* str) {
+    Image image;
+    Texture2D tex;
+    bool generate_image_texture = false;
+    int r, g, b, a=255;
+    if (!str[0]) {
+        return blankTexture;
+    }
+    if (!memcmp(str, "rgb(", 4)) {
+        sscanf(str, "rgb(%d,%d,%d)", &r, &g, &b);
+        generate_image_texture = true;
+    } else if (!memcmp(str, "rgba(", 5)) {
+        sscanf(str, "rgba(%d,%d,%d,%d)", &r, &g, &b, &a);
+        generate_image_texture = true;
+    }
+    if (generate_image_texture) {
+        image = GenImageColor(1, 1,
+            {(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a});
+        tex = LoadTextureFromImage(image);
+        GenTextureMipmaps(&tex);
+        UnloadImage(image);
+    } else {
+        tex = LoadTexture(str);
+        if (IsTextureReady(tex)) {
+            GenTextureMipmaps(&tex);
+        } else {
+            TraceLog(LOG_WARNING, "Failed to load image file %s!", str);
+            tex = blankTexture;
+        }
+    }
+    return tex;
+}
+
+void InputTextureOptions(Texture2D& tex) {
+    if (ImGui::Button("Trilinear")) {
+        SetTextureFilter(tex, TEXTURE_FILTER_TRILINEAR);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Bilinear")) {
+        SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Point")) {
+        SetTextureFilter(tex, TEXTURE_FILTER_POINT);
+    }
+    if (ImGui::Button("Repeat")) {
+        SetTextureWrap(tex, TEXTURE_WRAP_REPEAT);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Mirror")) {
+        SetTextureWrap(tex, TEXTURE_WRAP_MIRROR_REPEAT);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clamp")) {
+        SetTextureWrap(tex, TEXTURE_WRAP_CLAMP);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Mirror Once")) {
+        SetTextureWrap(tex, TEXTURE_WRAP_MIRROR_CLAMP);
+    }
+}
+
+void InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, unsigned int loc) {
+    ImGui::InputTextWithHint(str, "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
+    if (ImGui::Button("Load Image")) {
+        Texture2D newtex = LoadTextureFromString(buf);
+        if (IsTextureReady(newtex)) {
+            if (uniform != nullptr) {
+                uniform->isSet = true;
+            }
+            if (IsTextureReady(tex)) {
+                UnloadTexture(tex);
+            }
+            tex = newtex;
+            if (loc != -1) {
+                SetShaderValueTexture(pixelShader, loc, tex);
+            }
+        }
+    }
+    ImGui::SameLine();
+    InputTextureOptions(tex);
+}
+
 
 int main(int argc, char** argv) {
     char pixel_shader_file[IMAGE_NAME_BUFFER_LENGTH] = "shaders/noise.fs";
@@ -262,22 +349,26 @@ int main(int argc, char** argv) {
 
     char image_input[IMAGE_NAME_BUFFER_LENGTH] = {0};
     char image_output[IMAGE_NAME_BUFFER_LENGTH] = {0};
-    Image blankImage = GenImageColor(1, 1, WHITE);
-    Texture2D albedo_tex = LoadTextureFromImage(blankImage);
+    Texture2D albedo_tex = blankTexture = LoadTextureFromImage(blankImage);
     bool update_shader_uniforms = true;
     renderTexture = LoadRenderTexture(rt_width, rt_width);
+    selfTexture = LoadRenderTexture(rt_width, rt_width);
     LoadPixelShader(pixel_shader_file);
 
     float dt = 0.0f;
+    int frame_counter = 0;
+    int target_fps = 60;
     while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(BLACK);
         DrawFPS(1, 1);
         if (render_texture_update_timer >= 1.0 / render_texture_update_rate) {
             render_texture_update_timer -= 1.0 / render_texture_update_rate;
-            BeginTextureMode(renderTexture);
-            ClearBackground(BLACK);
             if (IsShaderReady(pixelShader)) {
+                BeginTextureMode(renderTexture);
+                // if (frame_counter < 3) {
+                //     ClearBackground(BLACK);
+                // }
                 BeginShaderMode(pixelShader);
 
                 if (other_uniform_buffers.count("time") >= 1) {
@@ -289,41 +380,50 @@ int main(int argc, char** argv) {
                     other_uniform_buffers["time"].f = dt;
                     SetShaderValue(pixelShader, shader_locs["time"].first, &dt, SHADER_UNIFORM_FLOAT);
                 }
+                if (other_uniform_buffers.count("frame") >= 1) {
+                    other_uniform_buffers["frame"].i = frame_counter;
+                    SetShaderValue(pixelShader, shader_locs["frame"].first, &frame_counter, SHADER_UNIFORM_INT);
+                }
+                if (shader_locs.count("selfTexture") >= 1) {
+                    if (IsTextureReady(selfTexture.texture)) {
+                        SetShaderValueTexture(pixelShader, shader_locs["selfTexture"].first, selfTexture.texture);
+                    }
+                }
 
                 if (IsTextureReady(albedo_tex)) {
                     SetShaderValueTexture(pixelShader, SHADER_LOC_MAP_ALBEDO, albedo_tex);
                     Rectangle srcrec {0.0, 0.0, (float)albedo_tex.width, (float)albedo_tex.height};
                     Rectangle dstrec {0.0, 0.0, (float)renderTexture.texture.width, (float)renderTexture.texture.height};
                     DrawTexturePro(albedo_tex, srcrec, dstrec, {0.0, 0.0}, 0.0, WHITE);
+                } else {
+                    DrawRectangle(0, 0, renderTexture.texture.width, renderTexture.texture.height, WHITE);
                 }
                 EndShaderMode();
+                EndTextureMode();
+                // BeginTextureMode(selfTexture);
+                // ClearBackground(BLACK);
+                // Rectangle srcrec {0.0, 0.0, (float)renderTexture.texture.width, (float)renderTexture.texture.height};
+                // Rectangle dstrec {0.0, -(float)renderTexture.texture.height, (float)renderTexture.texture.width, -(float)renderTexture.texture.height};
+                // DrawTexturePro(renderTexture.texture, srcrec, dstrec, {0.0, 0.0}, 0.0, WHITE);
+                // EndTextureMode();
+                std::swap(selfTexture, renderTexture);
             }
-            EndTextureMode();
         }
         rlImGuiBegin();
 
         ImGui::Begin("Options");
         ImGui::InputTextWithHint("Pixel Shader File", "path to fragment shader", pixel_shader_file, sizeof(pixel_shader_file));
-        if (ImGui::Button("Reload Pixel Shader")) {
+        if (ImGui::Button("Reload Shader")) {
             //if (std::filesystem::exists(image_input)) {
                 LoadPixelShader(pixel_shader_file);
+                frame_counter = -1;
             //} else {
                 if (!IsShaderReady(pixelShader)) {
                     TraceLog(LOG_WARNING, "Failed to load Pixel shader %s!", pixel_shader_file);
                 }
             //}
         }
-        ImGui::InputTextWithHint("Diffuse/Albedo", "path to image to use as input", image_input, sizeof(image_input));
-        if (ImGui::Button("Load Image")) {
-            if (IsTextureReady(albedo_tex)) {
-                UnloadTexture(albedo_tex);
-            }
-            albedo_tex = LoadTexture(image_input);
-            if (!IsTextureReady(albedo_tex)) {
-                TraceLog(LOG_WARNING, "Failed to load Diffuse/Albedo image %s!", image_input);
-                albedo_tex = LoadTextureFromImage(blankImage);
-            }
-        }
+        InputTextureFields("Diffuse/Albedo", image_input, nullptr, albedo_tex, -1);
         ImGui::InputTextWithHint("Image Output", "path to image to save", image_output, sizeof(image_output));
         if (ImGui::Button("Save Image")) {
             Image img = LoadImageFromTexture(renderTexture.texture);
@@ -338,9 +438,20 @@ int main(int argc, char** argv) {
             if (IsRenderTextureReady(renderTexture)) {
                 UnloadRenderTexture(renderTexture);
             }
+            if (IsRenderTextureReady(selfTexture)) {
+                UnloadRenderTexture(selfTexture);
+            }
             renderTexture = LoadRenderTexture(rt_width, rt_width);
+            selfTexture = LoadRenderTexture(rt_width, rt_width);
         }
+        InputTextureOptions(renderTexture.texture);
         ImGui::SliderInt("Target updates per second", &render_texture_update_rate, 1, 60);
+        if (ImGui::SliderInt("Target FPS", &target_fps, 10, 500)) {
+            SetTargetFPS(target_fps);
+        }
+        if (ImGui::Button("Unlimited FPS")) {
+            SetTargetFPS((target_fps = -1));
+        }
         ImGui::End();
 
         ImGui::Begin("Output");
@@ -427,24 +538,16 @@ int main(int argc, char** argv) {
                 }
                 break;
             case SAMPLER2D:
+                if (p.first == "selfTexture") {
+                    break;
+                }
                 if (image_uniform_buffers.count(p.first) < 1) {
                     image_uniform_buffers.insert(
                         std::make_pair(p.first, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
                 }
                 {
                     auto buf = image_uniform_buffers[p.first];
-                    ImGui::InputTextWithHint(p.first.c_str(), "path to image", buf.first, IMAGE_NAME_BUFFER_LENGTH);
-                    if (ImGui::Button("load")) {
-                        Texture2D newtex = LoadTexture(buf.first);
-                        if (IsTextureReady(buf.second)) {
-                            SetShaderValueTexture(pixelShader, v.first, image_uniform_buffers[p.first].second);
-                            uniform->isSet = true;
-                            if (IsTextureReady(buf.second)) {
-                                UnloadTexture(buf.second);
-                            }
-                            buf.second = newtex;
-                        }
-                    }
+                    InputTextureFields(p.first.c_str(), buf.first, uniform, buf.second, p.second.first);
                 }
                 break;
             case UNKNOWN:
@@ -457,6 +560,7 @@ int main(int argc, char** argv) {
         EndDrawing();
         dt = GetFrameTime();
         render_texture_update_timer += dt;
+        frame_counter++;
     }
 
     rlImGuiShutdown();

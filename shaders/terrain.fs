@@ -10,6 +10,7 @@
 
 in vec2 fragTexCoord;
 uniform sampler2D texture0;
+uniform sampler2D heightMap;
 
 uniform color3 sky_color = vec3(0.5, 0.5, 0.8);
 uniform color3 _color0 = vec3(2.0, 0.0, 69.0)/255.0;
@@ -65,7 +66,7 @@ vec3 surfaceColor(float height) {
 }
 
 float map(vec2 p) {
-    return texture(texture0, p * 0.01).r;
+    return texture(heightMap, p * 0.01).r;
 }
 
 float map(float x, float z) {
