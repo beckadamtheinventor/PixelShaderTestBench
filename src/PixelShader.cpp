@@ -175,7 +175,7 @@ bool PixelShader::Load(const char* filename) {
     }
     pixelShader = newPixelShader;
 
-    typeof(other_uniform_buffers) new_other_uniform_buffers;
+    std::map<std::string, Uniform> new_other_uniform_buffers;
     shader_locs.clear();
     for (size_t i = 0; i < len; i++) {
         if (!memcmp(&fragment_code[i], "uniform ", strlen("uniform "))) {
