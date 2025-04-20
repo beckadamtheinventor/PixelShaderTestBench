@@ -38,7 +38,7 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/raylib-extras/rlImGui" rlImGui EX
 #######################################################
 # Main executable
 #######################################################
-add_executable(${target} MACOSX_BUNDLE src/main.cpp)
+add_executable(${target} MACOSX_BUNDLE src/main.cpp src/PixelShader.cpp)
 target_link_libraries(${target} PUBLIC raylib imgui rlImGui)
 
 #######################################################
