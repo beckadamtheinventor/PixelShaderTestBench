@@ -51,8 +51,6 @@ typedef struct {
 
 
 #define IMAGE_NAME_BUFFER_LENGTH 512
-extern Image blankImage;
-extern Texture2D blankTexture;
 
 Texture2D LoadTextureFromString(const char* str);
 void InputTextureOptions(Texture2D& tex);

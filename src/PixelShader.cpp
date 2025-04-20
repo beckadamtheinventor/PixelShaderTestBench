@@ -33,9 +33,14 @@ const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
     {"sampler2D", SAMPLER2D},
 };
 
-Image blankImage = GenImageColor(1, 1, WHITE);
-Texture2D blankTexture;
 int numLoadedShaders = 0;
+
+Texture2D BlankTexture() {
+    Image blankImage = GenImageColor(1, 1, WHITE);
+    Texture2D blankTexture = LoadTextureFromImage(blankImage);
+    UnloadImage(blankImage);
+    return blankTexture;
+}
 
 Texture2D LoadTextureFromString(const char* str) {
     Image image;
@@ -43,7 +48,7 @@ Texture2D LoadTextureFromString(const char* str) {
     bool generate_image_texture = false;
     int r, g, b, a=255;
     if (!str[0]) {
-        return blankTexture;
+        return BlankTexture();
     }
     if (!memcmp(str, "rgb(", 4)) {
         sscanf(str, "rgb(%d,%d,%d)", &r, &g, &b);
@@ -64,7 +69,7 @@ Texture2D LoadTextureFromString(const char* str) {
             GenTextureMipmaps(&tex);
         } else {
             TraceLog(LOG_WARNING, "Failed to load image file %s!", str);
-            tex = blankTexture;
+            tex = BlankTexture();
         }
     }
     return tex;
@@ -311,6 +316,7 @@ bool PixelShader::Load(const char* filename) {
 }
 
 void PixelShader::Unload() {
+    UnloadTexture(albedo_tex);
     UnloadRenderTexture(renderTexture);
     UnloadRenderTexture(selfTexture);
     UnloadShader(pixelShader);
@@ -318,7 +324,7 @@ void PixelShader::Unload() {
 }
 
 void PixelShader::Setup(int width) {
-    Texture2D albedo_tex = blankTexture = LoadTextureFromImage(blankImage);
+    albedo_tex = BlankTexture();
     rt_width = width;
     renderTexture = LoadRenderTexture(rt_width, rt_width);
     selfTexture = LoadRenderTexture(rt_width, rt_width);
