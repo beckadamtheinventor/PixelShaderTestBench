@@ -40,6 +40,27 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/external/raylib-extras/rlImGui" rlImGui EX
 #######################################################
 add_executable(${target} MACOSX_BUNDLE src/main.cpp src/PixelShader.cpp)
 target_link_libraries(${target} PUBLIC raylib imgui rlImGui)
+set_target_properties(${target} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${target})
+
+
+#######################################################
+# Copy sample shaders
+#######################################################
+if ("${PLATFORM}" STREQUAL "Web")
+    add_custom_command(
+        TARGET ${target} PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:${target}>/../shaders
+    )
+    #DEPENDS ${target}
+else()
+    add_custom_command(
+        TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:${target}>/shaders
+    )
+    #DEPENDS ${target}
+endif()
+
 
 #######################################################
 # on macOS => create a bundle (.app) and use Google angle
@@ -47,12 +68,12 @@ target_link_libraries(${target} PUBLIC raylib imgui rlImGui)
 if (APPLE)
   set_target_properties(${target} PROPERTIES
       BUNDLE True
-      MACOSX_BUNDLE_GUI_IDENTIFIER com.acme.raylib_cmake
-      MACOSX_BUNDLE_BUNDLE_NAME "RayLib CMake"
+      MACOSX_BUNDLE_GUI_IDENTIFIER com.beckadam.pixelshadertestbench
+      MACOSX_BUNDLE_BUNDLE_NAME "PixelShaderTestBench"
       MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
       MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0"
       MACOSX_BUNDLE_ICON_NAME "AppIcon"
-      MACOSX_BUNDLE_COPYRIGHT "© 2023 acme"
+      MACOSX_BUNDLE_COPYRIGHT "© 2023 Adam \"beckadamtheinventor\" Beckingham"
       MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in"
       )
 
