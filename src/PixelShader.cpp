@@ -34,7 +34,7 @@ const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
     {"sampler2D", SAMPLER2D},
 };
 
-int numLoadedShaders = 0;
+int numLoadedShadersEver = 0;
 
 std::vector<unsigned int> texturesNeedingCleanup;
 
@@ -344,8 +344,8 @@ bool PixelShader::Load(const char* filename) {
     }
     // other_uniform_buffers.clear();
     other_uniform_buffers = new_other_uniform_buffers;
-    name = "Shader " + std::to_string(numLoadedShaders);
-    num = numLoadedShaders++;
+    name = "Shader " + std::to_string(numLoadedShadersEver);
+    num = numLoadedShadersEver++;
     return true;
 }
 
@@ -354,7 +354,6 @@ void PixelShader::Unload() {
     UnloadRenderTexture(renderTexture);
     UnloadRenderTexture(selfTexture);
     UnloadShader(pixelShader);
-    numLoadedShaders--;
 }
 
 void PixelShader::Setup(int width) {
