@@ -104,4 +104,4 @@ class PixelShader {
     void DrawGUI();
 };
 
-
+extern PixelShader* pixelShaderReference;

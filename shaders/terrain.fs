@@ -10,7 +10,7 @@
 
 in vec2 fragTexCoord;
 uniform sampler2D texture0;
-uniform sampler2D heightMap;
+#define heightMap texture0
 
 uniform color3 sky_color = vec3(0.5, 0.5, 0.8);
 uniform color3 _color0 = vec3(2.0, 0.0, 69.0)/255.0;

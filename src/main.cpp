@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "PixelShader.hpp"
-
+PixelShader* pixelShaderReference = nullptr;
 
 int main(int argc, char** argv) {
     char pixel_shader_file[IMAGE_NAME_BUFFER_LENGTH] = "shaders/noise.fs";
@@ -87,6 +87,9 @@ int main(int argc, char** argv) {
                 } else if (ps->requested_clone) {
                     ps->requested_clone = false;
                     pixelShaders.push_back(new PixelShader(ps));
+                } else if (ps->requested_reference) {
+                    ps->requested_reference = false;
+                    pixelShaderReference = ps;
                 }
             }
         }

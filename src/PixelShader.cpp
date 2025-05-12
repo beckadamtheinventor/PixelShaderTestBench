@@ -4,6 +4,7 @@
 #include "rlImGui.h"
 #include <raylib.h>
 #include <fstream>
+#include <vector>
 
 const char* vertex_shader_code =
 "#version 330 core                  \n"
@@ -35,10 +36,41 @@ const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
 
 int numLoadedShaders = 0;
 
+std::vector<unsigned int> texturesNeedingCleanup;
+
+void PushBackTextureNeedingCleanup(Texture2D& tex) {
+    for (int i=0; i<texturesNeedingCleanup.size(); i++) {
+        if (texturesNeedingCleanup[i] == -1) {
+            texturesNeedingCleanup[i] = tex.id;
+            return;
+        }
+    }
+    texturesNeedingCleanup.push_back(tex.id);
+}
+
+int TextureNeedsCleanup(Texture2D& tex) {
+    for (int i=0; i<texturesNeedingCleanup.size(); i++) {
+        if (texturesNeedingCleanup[i] == tex.id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void CleanupTexture(Texture2D& tex) {
+    int i = TextureNeedsCleanup(tex);
+    if (i != -1) {
+        UnloadTexture(tex);
+        texturesNeedingCleanup[i] = -1;
+        tex = {0};
+    }
+}
+
 Texture2D BlankTexture() {
     Image blankImage = GenImageColor(1, 1, WHITE);
     Texture2D blankTexture = LoadTextureFromImage(blankImage);
     UnloadImage(blankImage);
+    PushBackTextureNeedingCleanup(blankTexture);
     return blankTexture;
 }
 
@@ -62,11 +94,13 @@ Texture2D LoadTextureFromString(const char* str) {
             {(unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a});
         tex = LoadTextureFromImage(image);
         GenTextureMipmaps(&tex);
+        PushBackTextureNeedingCleanup(tex);
         UnloadImage(image);
     } else {
         tex = LoadTexture(str);
         if (IsTextureReady(tex)) {
             GenTextureMipmaps(&tex);
+            PushBackTextureNeedingCleanup(tex);
         } else {
             TraceLog(LOG_WARNING, "Failed to load image file %s!", str);
             tex = BlankTexture();
@@ -316,7 +350,7 @@ bool PixelShader::Load(const char* filename) {
 }
 
 void PixelShader::Unload() {
-    UnloadTexture(albedo_tex);
+    CleanupTexture(albedo_tex);
     UnloadRenderTexture(renderTexture);
     UnloadRenderTexture(selfTexture);
     UnloadShader(pixelShader);
@@ -338,9 +372,7 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
             if (uniform != nullptr) {
                 uniform->isSet = true;
             }
-            if (IsTextureReady(tex)) {
-                UnloadTexture(tex);
-            }
+            CleanupTexture(tex);
             tex = newtex;
             if (loc != -1) {
                 SetShaderValueTexture(pixelShader, loc, tex);
@@ -349,6 +381,14 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
     }
     ImGui::SameLine();
     InputTextureOptions(tex);
+    if (pixelShaderReference != nullptr) {
+        if (ImGui::Button("Paste Reference")) {
+            CleanupTexture(tex);
+            tex = pixelShaderReference->renderTexture.texture;
+            snprintf(buf, IMAGE_NAME_BUFFER_LENGTH, "(Shader Output %u)", pixelShaderReference->num);
+            pixelShaderReference = nullptr;
+        }
+    }
 }
 
 void PixelShader::DrawGUI() {
@@ -380,11 +420,11 @@ void PixelShader::DrawGUI() {
         selfTexture = LoadRenderTexture(rt_width, rt_width);
     }
     InputTextureOptions(renderTexture.texture);
-    if (ImGui::Button("Clone")) {
+    if (ImGui::Button("Clone Shader")) {
         requested_clone = true;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Copy Reference")) {
+    if (ImGui::Button("Copy Reference To Output")) {
         requested_reference = true;
     }
     ImGui::End();
