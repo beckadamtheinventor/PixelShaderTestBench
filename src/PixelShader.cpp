@@ -1,9 +1,13 @@
 
 #include "PixelShader.hpp"
+#include "FileDialogs.hpp"
 #include "imgui.h"
 #include "rlImGui.h"
+#include <functional>
+#include <list>
 #include <raylib.h>
 #include <fstream>
+#include <utility>
 #include <vector>
 
 const char* vertex_shader_code =
@@ -37,8 +41,9 @@ const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
 int numLoadedShadersEver = 0;
 
 std::vector<unsigned int> texturesNeedingCleanup;
+extern std::list<std::pair<FileDialogs::FileDialog*, std::function<bool(std::string)>>> fileDialogs;
 
-void PushBackTextureNeedingCleanup(Texture2D& tex) {
+void PushBackTextureNeedingCleanup(const Texture2D& tex) {
     for (int i=0; i<texturesNeedingCleanup.size(); i++) {
         if (texturesNeedingCleanup[i] == -1) {
             texturesNeedingCleanup[i] = tex.id;
@@ -48,7 +53,7 @@ void PushBackTextureNeedingCleanup(Texture2D& tex) {
     texturesNeedingCleanup.push_back(tex.id);
 }
 
-int TextureNeedsCleanup(Texture2D& tex) {
+int TextureNeedsCleanup(const Texture2D& tex) {
     for (int i=0; i<texturesNeedingCleanup.size(); i++) {
         if (texturesNeedingCleanup[i] == tex.id) {
             return i;
@@ -365,6 +370,25 @@ void PixelShader::Setup(int width) {
 
 void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, unsigned int loc) {
     ImGui::InputTextWithHint(str, "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
+    if (ImGui::Button("Browse")) {
+        fileDialogs.push_back(std::make_pair(new FileDialogs::FileDialog("Select an Image"), [uniform, &tex, this, loc] (std::string p) -> bool {
+            if (!p.size()) return false;
+            Texture2D newtex = LoadTextureFromString(p.c_str());
+            if (IsTextureReady(newtex)) {
+                GenTextureMipmaps(&newtex);
+                if (uniform != nullptr) {
+                    uniform->isSet = true;
+                }
+                CleanupTexture(tex);
+                tex = newtex;
+                if (loc != -1) {
+                    SetShaderValueTexture(pixelShader, loc, tex);
+                }
+            }
+            return true;
+        }));
+    }
+    ImGui::SameLine();
     if (ImGui::Button("Load Image")) {
         Texture2D newtex = LoadTextureFromString(buf);
         if (IsTextureReady(newtex)) {

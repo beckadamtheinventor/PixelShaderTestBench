@@ -6,6 +6,8 @@ uniform sampler2D texture0;
 uniform int enable_rotate = 1;
 uniform int enable_cart2polar = 1;
 uniform int enable_polar2cart = 0;
+uniform int enable_vertical_flip = 0;
+uniform int enable_horizontal_flip = 0;
 
 #define pi 3.141
 #define hpi (pi * 0.5)
@@ -35,6 +37,12 @@ void main() {
     vec2 coord = fragTexCoord;
     if (enable_rotate > 0) {
         coord = rotate2d(coord - 0.5, -hpi) + 0.5;
+    }
+    if (enable_horizontal_flip > 0) {
+        coord.x = 1.0f - coord.x;
+    }
+    if (enable_vertical_flip > 0) {
+        coord.y = 1.0f - coord.y;
     }
     if (enable_cart2polar > 0) {
         coord = cart2polar(coord);

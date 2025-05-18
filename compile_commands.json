@@ -12,6 +12,12 @@
   "output": "CMakeFiles/PixelShaderTestBench.dir/src/PixelShader.cpp.obj"
 },
 {
+  "directory": "C:/Users/beckadam/Documents/GitHub/PixelShaderTestBench/build",
+  "command": "C:\\raylib\\w64devkit\\bin\\c++.exe -DGRAPHICS_API_OPENGL_33 -DIMGUI_USER_CONFIG=\\\"imgui_user_config.h\\\" -DNO_FONT_AWESOME -DPLATFORM_DESKTOP @CMakeFiles/PixelShaderTestBench.dir/includes_CXX.rsp -g -o CMakeFiles\\PixelShaderTestBench.dir\\src\\FileDialogs.cpp.obj -c C:\\Users\\beckadam\\Documents\\GitHub\\PixelShaderTestBench\\src\\FileDialogs.cpp",
+  "file": "C:/Users/beckadam/Documents/GitHub/PixelShaderTestBench/src/FileDialogs.cpp",
+  "output": "CMakeFiles/PixelShaderTestBench.dir/src/FileDialogs.cpp.obj"
+},
+{
   "directory": "C:/Users/beckadam/Documents/GitHub/PixelShaderTestBench/build/raylib/raylib",
   "command": "C:\\raylib\\w64devkit\\bin\\cc.exe -DGRAPHICS_API_OPENGL_33 -DPLATFORM_DESKTOP -D_CRT_SECURE_NO_WARNINGS @CMakeFiles/raylib.dir/includes_C.rsp -fno-strict-aliasing -Werror=implicit-function-declaration -Werror=pointer-arith  -g -std=gnu99 -o CMakeFiles\\raylib.dir\\rcore.c.obj -c C:\\Users\\beckadam\\Documents\\GitHub\\PixelShaderTestBench\\external\\raysan5\\raylib\\src\\rcore.c",
   "file": "C:/Users/beckadam/Documents/GitHub/PixelShaderTestBench/external/raysan5/raylib/src/rcore.c",
