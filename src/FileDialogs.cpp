@@ -182,6 +182,16 @@ bool FileDialog::Show(std::filesystem::path& selected) {
         ImGui::PopID();
     }
 
+    if (saveas) {
+        static char buf[512];
+        ImGui::InputTextWithHint("File Name", "file.json", buf, sizeof(buf));
+        ImGui::SameLine();
+        if (ImGui::Button("Save")) {
+            selected = std::filesystem::path(buf);
+            clicked = true;
+        }
+    }
+
     ImGui::Text("Files");
 
     for (int i = 0; i < listed_files.size(); i++) {

@@ -12,15 +12,15 @@ namespace FileDialogs {
     std::vector<std::filesystem::path> GetPinnedFolders();
 
     class FileDialog {
-        bool needs_dirlist = true;
+        bool needs_dirlist = true, saveas = false;
         std::filesystem::path path;
         std::string title;
         protected:
         std::vector<std::filesystem::path> listed_folders;
         std::vector<std::filesystem::path> listed_files;
         public:
-        FileDialog(std::string title, std::filesystem::path path) : title(title), path(path) {}
-        FileDialog(std::string title) : title(title), path(std::filesystem::current_path()) {}
+        FileDialog(std::string title, std::filesystem::path path, bool saveas=false) : title(title), path(path), saveas(saveas) {}
+        FileDialog(std::string title, bool saveas=false) : title(title), path(std::filesystem::current_path()), saveas(saveas) {}
         bool Show(std::filesystem::path& selected);
     };
 }

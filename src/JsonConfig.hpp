@@ -38,13 +38,14 @@ class JsonConfig {
         }
         return false;
     }
-    bool save() {
-        std::ofstream fd(_filename);
+    bool save(std::string fname="") {
+        if (fname.size() < 1) fname = _filename;
+        std::ofstream fd(fname);
         if (fd.is_open()) {
             try {
                 fd << _data;
             } catch (std::exception err) {
-                TraceLog(LOG_WARNING, "Failed to save json to file %s: %s", _filename.c_str(), err.what());
+                TraceLog(LOG_WARNING, "Failed to save json to file %s: %s", fname.c_str(), err.what());
                 return false;
             }
             fd.close();

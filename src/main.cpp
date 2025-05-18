@@ -34,6 +34,44 @@ bool LoadPixelShader(std::string file) {
     return false;
 }
 
+JsonConfig LoadWorkspace(std::string fname="workspace.json") {
+    JsonConfig workspaceCfg(fname);
+    if (workspaceCfg.contains("shaders")) {
+        auto shaders = workspaceCfg["shaders"];
+        if (shaders.is_object()) {
+            for (auto s : shaders.items()) {
+                std::string fname = s.key();
+                nlohmann::json j = s.value();
+                if (!j.is_object()) continue;
+                if (LoadPixelShader(fname)) {
+                    if (j.contains("uniforms") && j["uniforms"].is_object()) {
+                        PixelShader* ps = pixelShaders.back();
+                        if (j.contains("width") && j["width"].is_number()) {
+                            ps->SetRTWidth(j["width"].get<int>());
+                        }
+                        ps->LoadUniforms(j["uniforms"]);
+                    }
+                }
+            }
+        }
+    }
+    return workspaceCfg;
+}
+
+void SaveWorkspace(JsonConfig& cfg) {
+    nlohmann::json json;
+    for (auto ps : pixelShaders) {
+        if (ps == nullptr) continue;
+        nlohmann::json j = ps->DumpUniforms();
+        json[std::string(ps->filename)] = {
+            {"uniforms", j},
+            {"width", ps->rt_width},
+        };
+    }
+    cfg["shaders"] = json;
+    cfg.save();
+}
+
 int main(int argc, char** argv) {
     char pixel_shader_file[IMAGE_NAME_BUFFER_LENGTH] = "shaders/noise.fs";
     if (argc > 1) {
@@ -65,26 +103,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    JsonConfig workspaceCfg("workspace.json");
-    if (workspaceCfg.contains("shaders")) {
-        auto shaders = workspaceCfg["shaders"];
-        if (shaders.is_object()) {
-            for (auto s : shaders.items()) {
-                std::string fname = s.key();
-                nlohmann::json j = s.value();
-                if (!j.is_object()) continue;
-                if (LoadPixelShader(fname)) {
-                    if (j.contains("uniforms") && j["uniforms"].is_object()) {
-                        PixelShader* ps = pixelShaders.back();
-                        if (j.contains("width") && j["width"].is_number()) {
-                            ps->SetRTWidth(j["width"].get<int>());
-                        }
-                        ps->LoadUniforms(j["uniforms"]);
-                    }
-                }
-            }
-        }
-    }
+    JsonConfig workspaceCfg = LoadWorkspace();
 
     float dt = 0.0f;
     int frame_counter = 0;
@@ -122,6 +141,15 @@ int main(int argc, char** argv) {
         }
         if (ImGui::Button("Unlimited FPS")) {
             SetTargetFPS((target_fps = -1));
+        }
+        if (ImGui::Button("Save Workspace")) {
+            SaveWorkspace(workspaceCfg);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Save As...")) {
+            fileDialogs.push_back(std::make_pair(new FileDialogs::FileDialog("Save Workspace As", true),
+                [&workspaceCfg] (std::string fname) { if (fname.size() < 1) return false; return workspaceCfg.save(fname); }
+            ));
         }
         ImGui::End();
 
@@ -168,19 +196,8 @@ int main(int argc, char** argv) {
         pinsCfg.set("pinned_folders", pin_strings);
         pinsCfg.save();
     }
-    {
-        nlohmann::json json;
-        for (auto ps : pixelShaders) {
-            if (ps == nullptr) continue;
-            nlohmann::json j = ps->DumpUniforms();
-            json[std::string(ps->filename)] = {
-                {"uniforms", j},
-                {"width", ps->rt_width},
-            };
-        }
-        workspaceCfg["shaders"] = json;
-        workspaceCfg.save();
-    }
+
+    SaveWorkspace(workspaceCfg);
 
     rlImGuiShutdown();
     CloseWindow();
