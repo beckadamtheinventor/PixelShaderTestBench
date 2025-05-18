@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     if (pinsCfg.contains("pinned_folders")) {
         auto pinned = pinsCfg["pinned_folders"];
         if (pinned.is_array()) {
-            for (auto& p : pinned) {
+            for (auto p : pinned) {
                 if (p.is_string()) {
                     FileDialogs::AddPinnedFolder(p.get<std::string>());
                 }

@@ -18,6 +18,7 @@ class JsonConfig {
     }
     JsonConfig(std::string filename) {
         _filename = filename;
+        load();
     }
     bool load() {
         std::ifstream fd(_filename);
