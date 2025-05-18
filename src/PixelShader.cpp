@@ -1,14 +1,18 @@
 
-#include "PixelShader.hpp"
-#include "FileDialogs.hpp"
-#include "imgui.h"
-#include "rlImGui.h"
+#include <cstring>
 #include <functional>
 #include <list>
 #include <raylib.h>
 #include <fstream>
 #include <utility>
 #include <vector>
+
+#include <imgui.h>
+#include <rlImGui.h>
+
+#include "PixelShader.hpp"
+#include "FileDialogs.hpp"
+#include "nlohmann/json.hpp"
 
 const char* vertex_shader_code =
 "#version 330 core                  \n"
@@ -368,6 +372,14 @@ void PixelShader::Setup(int width) {
     selfTexture = LoadRenderTexture(rt_width, rt_width);
 }
 
+void PixelShader::SetRTWidth(int width) {
+    UnloadRenderTexture(renderTexture);
+    UnloadRenderTexture(selfTexture);
+    rt_width = width;
+    renderTexture = LoadRenderTexture(rt_width, rt_width);
+    selfTexture = LoadRenderTexture(rt_width, rt_width);
+}
+
 void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, unsigned int loc) {
     ImGui::InputTextWithHint(str, "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
     if (ImGui::Button("Browse")) {
@@ -465,88 +477,263 @@ void PixelShader::DrawGUI() {
             }
         }
         switch (v.second) {
-        case FLOAT:
-            if (ImGui::InputFloat(p.first.c_str(), &uniform->f)) {
-                SetShaderValue(pixelShader, v.first, &uniform->f, SHADER_UNIFORM_FLOAT);
-                uniform->isSet = true;
-            }
-            break;
-        case INT:
-            if (ImGui::InputInt(p.first.c_str(), &uniform->i)) {
-                SetShaderValue(pixelShader, v.first, &uniform->i, SHADER_UNIFORM_INT);
-                uniform->isSet = true;
-            }
-            break;
-        case VEC2:
-            if (ImGui::InputFloat2(p.first.c_str(), (float*)&uniform->v)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC2);
-                uniform->isSet = true;
-            }
-            break;
-        case VEC3:
-            if (ImGui::InputFloat3(p.first.c_str(), (float*)&uniform->v)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC3);
-                uniform->isSet = true;
-            }
-            break;
-        case VEC4:
-            if (ImGui::InputFloat4(p.first.c_str(), (float*)&uniform->v)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC4);
-                uniform->isSet = true;
-            }
-            break;
-        case COLOR3:
-            if (ImGui::ColorEdit3(p.first.c_str(), (float*)&uniform->v)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC3);
-                uniform->isSet = true;
-            }
-            break;
-        case COLOR4:
-            if (ImGui::ColorEdit4(p.first.c_str(), (float*)&uniform->v)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC4);
-                uniform->isSet = true;
-            }
-            break;
-        case SLIDER:
-            if (ImGui::SliderFloat(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_FLOAT);
-                uniform->isSet = true;
-            }
-            break;
-        case SLIDER2:
-            if (ImGui::SliderFloat2(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC2);
-                uniform->isSet = true;
-            }
-            break;
-        case SLIDER3:
-            if (ImGui::SliderFloat3(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC3);
-                uniform->isSet = true;
-            }
-            break;
-        case SLIDER4:
-            if (ImGui::SliderFloat4(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
-                SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC4);
-                uniform->isSet = true;
-            }
-            break;
-        case SAMPLER2D:
-            if (p.first == "selfTexture") {
+            case INT:
+                if (ImGui::InputInt(p.first.c_str(), &uniform->i)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->i, SHADER_UNIFORM_INT);
+                    uniform->isSet = true;
+                }
                 break;
-            }
-            if (image_uniform_buffers.count(p.first) < 1) {
-                image_uniform_buffers.insert(
-                    std::make_pair(p.first, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
-            }
-            {
-                auto buf = image_uniform_buffers[p.first];
-                InputTextureFields(p.first.c_str(), buf.first, uniform, buf.second, p.second.first);
-            }
-            break;
-        case UNKNOWN:
-            break;
+            case FLOAT:
+                if (ImGui::InputFloat(p.first.c_str(), &uniform->f)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->f, SHADER_UNIFORM_FLOAT);
+                    uniform->isSet = true;
+                }
+                break;
+            case VEC2:
+                if (ImGui::InputFloat2(p.first.c_str(), (float*)&uniform->v)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC2);
+                    uniform->isSet = true;
+                }
+                break;
+            case VEC3:
+                if (ImGui::InputFloat3(p.first.c_str(), (float*)&uniform->v)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC3);
+                    uniform->isSet = true;
+                }
+                break;
+            case VEC4:
+                if (ImGui::InputFloat4(p.first.c_str(), (float*)&uniform->v)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC4);
+                    uniform->isSet = true;
+                }
+                break;
+            case COLOR3:
+                if (ImGui::ColorEdit3(p.first.c_str(), (float*)&uniform->v)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC3);
+                    uniform->isSet = true;
+                }
+                break;
+            case COLOR4:
+                if (ImGui::ColorEdit4(p.first.c_str(), (float*)&uniform->v)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC4);
+                    uniform->isSet = true;
+                }
+                break;
+            case SLIDER:
+                if (ImGui::SliderFloat(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_FLOAT);
+                    uniform->isSet = true;
+                }
+                break;
+            case SLIDER2:
+                if (ImGui::SliderFloat2(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC2);
+                    uniform->isSet = true;
+                }
+                break;
+            case SLIDER3:
+                if (ImGui::SliderFloat3(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC3);
+                    uniform->isSet = true;
+                }
+                break;
+            case SLIDER4:
+                if (ImGui::SliderFloat4(p.first.c_str(), (float*)&uniform->v, uniform->min, uniform->max)) {
+                    SetShaderValue(pixelShader, v.first, &uniform->v, SHADER_UNIFORM_VEC4);
+                    uniform->isSet = true;
+                }
+                break;
+            case SAMPLER2D:
+                if (p.first == "selfTexture") {
+                    break;
+                }
+                if (image_uniform_buffers.count(p.first) < 1) {
+                    image_uniform_buffers.insert(
+                        std::make_pair(p.first, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
+                }
+                {
+                    auto buf = image_uniform_buffers[p.first];
+                    InputTextureFields(p.first.c_str(), buf.first, uniform, buf.second, p.second.first);
+                }
+                break;
+            default:
+                break;
         }
     }
     ImGui::End();
+}
+
+void PixelShader::SetUniform(std::string name, ShaderUniformType type, void* value) {
+    if (shader_locs.count(name) < 1) return;
+    if (other_uniform_buffers.count(name) < 1) return;
+    auto v = shader_locs[name];
+    Uniform* uniform = &other_uniform_buffers[name];
+    switch (type) {
+        case INT:
+            SetShaderValue(pixelShader, v.first, value, SHADER_UNIFORM_INT);
+            uniform->i = *(int*)value;
+            uniform->isSet = true;
+            break;
+        case FLOAT:
+        case SLIDER:
+            SetShaderValue(pixelShader, v.first, value, SHADER_UNIFORM_FLOAT);
+            uniform->f = *(float*)value;
+            uniform->isSet = true;
+            break;
+        case VEC2:
+        case SLIDER2:
+            SetShaderValue(pixelShader, v.first, value, SHADER_UNIFORM_VEC2);
+            memcpy(&uniform->v, value, sizeof(float)*2);
+            uniform->isSet = true;
+            break;
+        case VEC3:
+        case COLOR3:
+        case SLIDER3:
+            SetShaderValue(pixelShader, v.first, value, SHADER_UNIFORM_VEC3);
+            memcpy(&uniform->v, value, sizeof(float)*3);
+            uniform->isSet = true;
+            break;
+        case VEC4:
+        case COLOR4:
+        case SLIDER4:
+            SetShaderValue(pixelShader, v.first, value, SHADER_UNIFORM_VEC4);
+            memcpy(&uniform->v, value, sizeof(float)*4);
+            uniform->isSet = true;
+            break;
+        case SAMPLER2D:
+            if (name == "selfTexture") {
+                break;
+            }
+            if (image_uniform_buffers.count(name) < 1) {
+                image_uniform_buffers.insert(
+                    std::make_pair(name, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
+            }
+            {
+                auto& buf = image_uniform_buffers[name];
+                strcpy(buf.first, (char*)value);
+                buf.second = LoadTextureFromString((char*)value);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+void PixelShader::LoadUniforms(nlohmann::json json) {
+    if (!json.is_object()) return;
+    for (auto p : json.items()) {
+        auto j = p.value();
+        if (j.contains("t") && j["t"].is_number()) {
+            switch (j["t"].get<int>()) {
+                case INT:
+                    if (j["v"].is_number()) {
+                        int ival = j["v"].get<int>();
+                        SetUniform(p.key(), INT, &ival);
+                    }
+                    break;
+                case FLOAT:
+                case SLIDER:
+                    if (j["v"].is_number()) {
+                        float fval = j["v"].get<float>();
+                        SetUniform(p.key(), FLOAT, &fval);
+                    }
+                    break;
+                case VEC2:
+                case SLIDER2:
+                    if (j["v"].is_array()) {
+                        float fval[2];
+                        for (int i=0; i<2; i++) {
+                            if (j["v"].size() >= i && j["v"][i].is_number()) {
+                                fval[i] = j["v"][i].get<float>();
+                            }
+                        }
+                        SetUniform(p.key(), VEC2, &fval);
+                    }
+                    break;
+                case VEC3:
+                case COLOR3:
+                case SLIDER3:
+                    if (j["v"].is_array()) {
+                        float fval[3];
+                        for (int i=0; i<3; i++) {
+                            if (j["v"].size() >= i && j["v"][i].is_number()) {
+                                fval[i] = j["v"][i].get<float>();
+                            }
+                        }
+                        SetUniform(p.key(), VEC3, &fval);
+                    }
+                    break;
+                case VEC4:
+                case COLOR4:
+                case SLIDER4:
+                    if (j["v"].is_array()) {
+                        float fval[4];
+                        for (int i=0; i<4; i++) {
+                            if (j["v"].size() >= i && j["v"][i].is_number()) {
+                                fval[i] = j["v"][i].get<float>();
+                            }
+                        }
+                        SetUniform(p.key(), VEC4, &fval);
+                    }
+                    break;
+                case SAMPLER2D:
+
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+nlohmann::json PixelShader::DumpUniforms() {
+    nlohmann::json json;
+    for (auto l : shader_locs) {
+        std::string key = l.first;
+        if (other_uniform_buffers.count(key) >= 1) {
+            Uniform uniform = other_uniform_buffers[key];
+            ShaderUniformType type = l.second.second;
+            if (type == SAMPLER2D || uniform.isSet) {
+                bool should_include = true;
+                nlohmann::json j = {{"t", type}};
+                switch (type) {
+                case UNKNOWN:
+                    break;
+                case INT:
+                    j["v"] = uniform.i;
+                    break;
+                case FLOAT:
+                case SLIDER:
+                    j["v"] = uniform.f;
+                    break;
+                case VEC2:
+                case SLIDER2:
+                    j["v"] = nlohmann::json::array({uniform.v[0], uniform.v[1]});
+                    break;
+                case VEC3:
+                case COLOR3:
+                case SLIDER3:
+                    j["v"] = nlohmann::json::array({uniform.v[0], uniform.v[1], uniform.v[2]});
+                    break;
+                case VEC4:
+                case COLOR4:
+                case SLIDER4:
+                    j["v"] = nlohmann::json::array({uniform.v[0], uniform.v[1], uniform.v[2], uniform.v[3]});
+                    break;
+                case SAMPLER2D:
+                    if (image_uniform_buffers.count(key) < 1) {
+                        should_include = false;
+                    } else if (strlen(image_uniform_buffers[key].first) > 0) {
+                        j["v"] = std::string(image_uniform_buffers[key].first);
+                    } else {
+                        should_include = false;
+                    }
+                    break;
+                }
+                if (should_include) {
+                    json[key] = j;
+                }
+            }
+        }
+    }
+    return json;
 }

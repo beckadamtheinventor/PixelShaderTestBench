@@ -1,10 +1,3 @@
-#include "FileDialogs.hpp"
-#include "JsonConfig.hpp"
-#include "raylib.h"
-#include "imgui.h"
-#include "rlImGui.h"
-#include "rlgl.h"
-#include "external/glad.h"
 #include <cctype>
 #include <cstring>
 #include <ctime>
@@ -14,7 +7,16 @@
 #include <utility>
 #include <vector>
 
+#include <raylib.h>
+#include <imgui.h>
+#include <rlImGui.h>
+#include <rlgl.h>
+#include <external/glad.h>
+
 #include "PixelShader.hpp"
+#include "FileDialogs.hpp"
+#include "JsonConfig.hpp"
+#include "nlohmann/json.hpp"
 
 PixelShader* pixelShaderReference = nullptr;
 std::list<PixelShader*> pixelShaders;
@@ -63,9 +65,26 @@ int main(int argc, char** argv) {
         }
     }
 
-    PixelShader* ps = new PixelShader(pixel_shader_file);
-    ps->Setup(default_rt_width);
-    pixelShaders.push_back(ps);
+    JsonConfig workspaceCfg("workspace.json");
+    if (workspaceCfg.contains("shaders")) {
+        auto shaders = workspaceCfg["shaders"];
+        if (shaders.is_object()) {
+            for (auto s : shaders.items()) {
+                std::string fname = s.key();
+                nlohmann::json j = s.value();
+                if (!j.is_object()) continue;
+                if (LoadPixelShader(fname)) {
+                    if (j.contains("uniforms") && j["uniforms"].is_object()) {
+                        PixelShader* ps = pixelShaders.back();
+                        if (j.contains("width") && j["width"].is_number()) {
+                            ps->SetRTWidth(j["width"].get<int>());
+                        }
+                        ps->LoadUniforms(j["uniforms"]);
+                    }
+                }
+            }
+        }
+    }
 
     float dt = 0.0f;
     int frame_counter = 0;
@@ -148,6 +167,19 @@ int main(int argc, char** argv) {
         }
         pinsCfg.set("pinned_folders", pin_strings);
         pinsCfg.save();
+    }
+    {
+        nlohmann::json json;
+        for (auto ps : pixelShaders) {
+            if (ps == nullptr) continue;
+            nlohmann::json j = ps->DumpUniforms();
+            json[std::string(ps->filename)] = {
+                {"uniforms", j},
+                {"width", ps->rt_width},
+            };
+        }
+        workspaceCfg["shaders"] = json;
+        workspaceCfg.save();
     }
 
     rlImGuiShutdown();

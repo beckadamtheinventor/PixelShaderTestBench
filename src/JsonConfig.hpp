@@ -1,9 +1,10 @@
 #ifndef __JSON_CONFIG_HPP__
 #define __JSON_CONFIG_HPP__
 
-#include "nlohmann/json.hpp"
-#include <raylib.h>
+#include <exception>
 #include <fstream>
+#include <raylib.h>
+#include "nlohmann/json.hpp"
 
 class JsonConfig {
     std::string _filename;
@@ -28,6 +29,9 @@ class JsonConfig {
             } catch (nlohmann::detail::exception err) {
                 TraceLog(LOG_WARNING, "Failed to load json from file %s: %s", _filename.c_str(), err.what());
                 return false;
+            } catch (std::exception err) {
+                TraceLog(LOG_WARNING, "Failed to load json from file %s: %s", _filename.c_str(), err.what());
+                return false;
             }
             fd.close();
             return true;
@@ -37,7 +41,12 @@ class JsonConfig {
     bool save() {
         std::ofstream fd(_filename);
         if (fd.is_open()) {
-            fd << _data;
+            try {
+                fd << _data;
+            } catch (std::exception err) {
+                TraceLog(LOG_WARNING, "Failed to save json to file %s: %s", _filename.c_str(), err.what());
+                return false;
+            }
             fd.close();
             return true;
         }
@@ -63,7 +72,7 @@ class JsonConfig {
     bool contains(std::string key) {
         return _data.contains(key);
     }
-    nlohmann::json operator[](std::string key) {
+    nlohmann::json& operator[](std::string key) {
         return _data[key];
     }
 

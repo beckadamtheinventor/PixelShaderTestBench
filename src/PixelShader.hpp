@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nlohmann/json.hpp"
 #include <cstring>
 #include <map>
 #include <string>
@@ -85,7 +86,7 @@ class PixelShader {
     }
     PixelShader(PixelShader& other) : PixelShader(&other) {}
     PixelShader(const char* fname) : PixelShader() {
-        filename = fname;
+        filename = strdup(fname);
         if (filename != nullptr) {
             Load(filename);
         }
@@ -100,8 +101,12 @@ class PixelShader {
     public:
     void Unload();
     void Setup(int width);
+    void SetRTWidth(int width);
     void InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, unsigned int loc);
     void DrawGUI();
+    void SetUniform(std::string name, ShaderUniformType type, void* value);
+    void LoadUniforms(nlohmann::json json);
+    nlohmann::json DumpUniforms();
 };
 
 extern PixelShader* pixelShaderReference;
