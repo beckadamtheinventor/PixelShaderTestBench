@@ -45,7 +45,7 @@ const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
 int numLoadedShadersEver = 0;
 
 std::vector<unsigned int> texturesNeedingCleanup;
-extern std::list<std::pair<FileDialogs::FileDialog*, std::function<bool(std::string)>>> fileDialogs;
+extern FileDialogs::FileDialogManager fileDialogManager;
 
 void PushBackTextureNeedingCleanup(const Texture2D& tex) {
     for (int i=0; i<texturesNeedingCleanup.size(); i++) {
@@ -383,7 +383,7 @@ void PixelShader::SetRTWidth(int width) {
 void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, unsigned int loc) {
     ImGui::InputTextWithHint(str, "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
     if (ImGui::Button("Browse")) {
-        fileDialogs.push_back(std::make_pair(new FileDialogs::FileDialog("Select an Image"), [uniform, &tex, this, loc] (std::string p) -> bool {
+        fileDialogManager.openIfNotAlready("BrowseForImageInput", "Select an Image", [uniform, &tex, this, loc] (std::string p) -> bool {
             if (!p.size()) return false;
             Texture2D newtex = LoadTextureFromString(p.c_str());
             if (IsTextureReady(newtex)) {
@@ -398,7 +398,7 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
                 }
             }
             return true;
-        }));
+        });
     }
     ImGui::SameLine();
     if (ImGui::Button("Load Image")) {

@@ -20,7 +20,7 @@
 
 PixelShader* pixelShaderReference = nullptr;
 std::list<PixelShader*> pixelShaders;
-std::list<std::pair<FileDialogs::FileDialog*, std::function<bool(std::string)>>> fileDialogs;
+FileDialogs::FileDialogManager fileDialogManager;
 int default_rt_width = 512;
 
 bool LoadPixelShader(std::string file) {
@@ -125,8 +125,7 @@ int main(int argc, char** argv) {
         ImGui::Begin("Options");
         ImGui::InputTextWithHint("Pixel Shader File", "path to fragment shader", pixel_shader_file, sizeof(pixel_shader_file));
         if (ImGui::Button("Browse")) {
-            FileDialogs::FileDialog* dialog = new FileDialogs::FileDialog("Load Shader");
-            fileDialogs.push_back(std::make_pair(dialog, [] (std::string s) { return LoadPixelShader(s); }));
+            fileDialogManager.openIfNotAlready("BrowseForShaderInput", "Load Shader", [] (std::string s) { return LoadPixelShader(s); });
         }
         ImGui::SameLine();
         if (ImGui::Button("Load Shader")) {
@@ -147,9 +146,9 @@ int main(int argc, char** argv) {
         }
         ImGui::SameLine();
         if (ImGui::Button("Save As...")) {
-            fileDialogs.push_back(std::make_pair(new FileDialogs::FileDialog("Save Workspace As", true),
-                [&workspaceCfg] (std::string fname) { if (fname.size() < 1) return false; return workspaceCfg.save(fname); }
-            ));
+            fileDialogManager.openIfNotAlready("SaveWorkspaceAs", "Save Workspace As",
+                [&workspaceCfg] (std::string fname) { if (fname.size() < 1) return false; return workspaceCfg.save(fname); },
+            true);
         }
         ImGui::End();
 
@@ -170,15 +169,7 @@ int main(int argc, char** argv) {
             }
         }
         // display active file dialogs
-        for (auto& d : fileDialogs) {
-            if (d.first != nullptr) {
-                std::filesystem::path selected;
-                if (d.first->Show(selected)) {
-                    d.first = nullptr;
-                    d.second(FileDialogs::NarrowString16To8(selected.wstring()));
-                }
-            }
-        }
+        fileDialogManager.show();
 
         rlImGuiEnd();
         EndDrawing();
