@@ -8,3 +8,4 @@ pins.json
 config.json
 workspace.json
 compile-commands.json
+debug.log
