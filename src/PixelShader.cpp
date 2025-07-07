@@ -1,7 +1,6 @@
 
 #include <cstring>
 #include <functional>
-#include <list>
 #include <raylib.h>
 #include <fstream>
 #include <utility>
@@ -42,7 +41,7 @@ const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
     {"sampler2D", SAMPLER2D},
 };
 
-int numLoadedShadersEver = 0;
+unsigned int numLoadedShadersEver = 0;
 
 std::vector<unsigned int> texturesNeedingCleanup;
 extern FileDialogs::FileDialogManager fileDialogManager;
@@ -118,6 +117,15 @@ Texture2D LoadTextureFromString(const char* str) {
     return tex;
 }
 
+PixelShader::PixelShader(const char* fname) : PixelShader() {
+    filename = strdup(fname);
+    if (filename != nullptr) {
+        Load(filename);
+        name = "Shader " + std::to_string(numLoadedShadersEver);
+        num = numLoadedShadersEver++;
+    }
+}
+
 void InputTextureOptions(Texture2D& tex) {
     if (ImGui::Button("Trilinear")) {
         SetTextureFilter(tex, TEXTURE_FILTER_TRILINEAR);
@@ -169,11 +177,21 @@ void PixelShader::Update(float dt, int frame_counter) {
         other_uniform_buffers["frame"].i = frame_counter;
         SetShaderValue(pixelShader, shader_locs["frame"].first, &frame_counter, SHADER_UNIFORM_INT);
     }
-    if (shader_locs.count("selfTexture") >= 1) {
-        if (IsTextureReady(selfTexture.texture)) {
-            SetShaderValueTexture(pixelShader, shader_locs["selfTexture"].first, selfTexture.texture);
+    for (auto loc : shader_locs) {
+        if (loc.second.second == SAMPLER2D) {
+            if (image_uniform_buffers.count(loc.first) > 0) {
+                Texture2D& tex = image_uniform_buffers[loc.first].second;
+                if (IsTextureReady(tex)) {
+                    SetShaderValueTexture(pixelShader, loc.second.first, tex);
+                }
+            }
         }
     }
+    // if (shader_locs.count("selfTexture") >= 1) {
+    //     if (IsTextureReady(selfTexture.texture)) {
+    //         SetShaderValueTexture(pixelShader, shader_locs["selfTexture"].first, selfTexture.texture);
+    //     }
+    // }
 
     if (IsTextureReady(albedo_tex)) {
         SetShaderValueTexture(pixelShader, SHADER_LOC_MAP_ALBEDO, albedo_tex);
@@ -226,7 +244,7 @@ bool PixelShader::Load(const char* filename) {
     for (size_t i = 0; i < len; i++) {
         if (!memcmp(&fragment_code[i], "uniform ", strlen("uniform "))) {
             // TraceLog(LOG_INFO, "found uniform at offset %u", i);
-            i += strlen("uniform");
+            i += strlen("uniform ");
             while (isspace(fragment_code[i]) && i < len) i++;
             for (auto p : shader_uniform_type_strings) {
                 std::string s = p.first;
@@ -236,6 +254,7 @@ bool PixelShader::Load(const char* filename) {
                         size_t j = i + l + 1;
                         char* eol = (char*)memchr(&fragment_code[j], '\n', len-j);
                         if (eol == nullptr) eol = &fragment_code[len];
+                        else if (eol[-1] != ';') continue;
                         char* eos = &fragment_code[j];
                         if (fragment_code[i+l] == '(') {
                             while (eos < eol && *eos != ')') eos++;
@@ -244,10 +263,10 @@ bool PixelShader::Load(const char* filename) {
                         }
                         while (eos < eol && (isalnum(*eos) || *eos == '_')) eos++;
                         std::string name = std::string(&fragment_code[j], eos - &fragment_code[j]);
-                        unsigned int loc = rlGetLocationUniform(pixelShader.id, name.c_str());
-                        if (name == "texture0") {
-                            continue;
-                        }
+                        int loc = rlGetLocationUniform(pixelShader.id, name.c_str());
+                        // if (name == "texture0") {
+                        //     continue;
+                        // }
                         if (loc == -1) {
                             TraceLog(LOG_WARNING,
                                 "Failed to locate uniform \"%s\" in shader despite it appearing in the shader source!", name.c_str());
@@ -351,9 +370,16 @@ bool PixelShader::Load(const char* filename) {
     }
     // other_uniform_buffers.clear();
     other_uniform_buffers = new_other_uniform_buffers;
-    name = "Shader " + std::to_string(numLoadedShadersEver);
-    num = numLoadedShadersEver++;
     return true;
+}
+
+void PixelShader::Reload() {
+    int w = rt_width;
+    nlohmann::json j = DumpUniforms();
+    Unload();
+    Load(filename);
+    Setup(w);
+    LoadUniforms(j);
 }
 
 void PixelShader::Unload() {
@@ -361,6 +387,9 @@ void PixelShader::Unload() {
     UnloadRenderTexture(renderTexture);
     UnloadRenderTexture(selfTexture);
     UnloadShader(pixelShader);
+    renderTexture = {0};
+    selfTexture = {0};
+    pixelShader = {0};
 }
 
 void PixelShader::Setup(int width) {
@@ -378,13 +407,14 @@ void PixelShader::SetRTWidth(int width) {
     selfTexture = LoadRenderTexture(rt_width, rt_width);
 }
 
-void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, unsigned int loc) {
+void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, int loc) {
     ImGui::InputTextWithHint(str, "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
     if (ImGui::Button("Browse")) {
-        fileDialogManager.openIfNotAlready("BrowseForImageInput", "Select an Image", [uniform, &tex, this, loc] (std::string p) -> bool {
-            if (!p.size()) return false;
+        fileDialogManager.openIfNotAlready("BrowseForImageInput", "Select an Image", [uniform, &tex, this, loc, buf] (std::string p) -> bool {
+            if (!p.length()) return false;
             Texture2D newtex = LoadTextureFromString(p.c_str());
             if (IsTextureReady(newtex)) {
+                memcpy(buf, p.c_str(), p.length()+1);
                 GenTextureMipmaps(&newtex);
                 if (uniform != nullptr) {
                     uniform->isSet = true;
@@ -399,7 +429,7 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
         });
     }
     ImGui::SameLine();
-    if (ImGui::Button("Load Image")) {
+    if (ImGui::Button("Reload Image")) {
         Texture2D newtex = LoadTextureFromString(buf);
         if (IsTextureReady(newtex)) {
             if (uniform != nullptr) {
@@ -412,7 +442,6 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
             }
         }
     }
-    ImGui::SameLine();
     InputTextureOptions(tex);
     if (pixelShaderReference != nullptr) {
         if (ImGui::Button("Paste Reference")) {
@@ -425,13 +454,16 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
 }
 
 void PixelShader::DrawGUI() {
-
     ImGui::Begin((name + " Output").c_str(), &is_active);
     rlImGuiImageSize(&renderTexture.texture, 512, 512);
     ImGui::End();
 
     ImGui::Begin((name + " Options").c_str(), &is_active);
-    InputTextureFields("Diffuse/Albedo", image_input, nullptr, albedo_tex, -1);
+
+    if (ImGui::Button("Reload Shader")) {
+        Reload();
+    }
+    InputTextureFields("Diffuse/Albedo", image_input, &other_uniform_buffers["texture0"], albedo_tex, -1);
     ImGui::InputTextWithHint("Image Output", "path to image to save", image_output, sizeof(image_output));
     if (ImGui::Button("Save Image")) {
         Image img = LoadImageFromTexture(renderTexture.texture);
@@ -464,6 +496,7 @@ void PixelShader::DrawGUI() {
 
     ImGui::Begin((name + " Uniforms").c_str(), &is_active);
     for (auto p : shader_locs) {
+        if (p.first == "texture0") continue;
         auto v = p.second;
         Uniform* uniform;
         if (v.second<SAMPLER2D) {
@@ -605,11 +638,14 @@ void PixelShader::SetUniform(std::string name, ShaderUniformType type, void* val
             if (image_uniform_buffers.count(name) < 1) {
                 image_uniform_buffers.insert(
                     std::make_pair(name, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
+            } else {
+                CleanupTexture(image_uniform_buffers[name].second);
             }
             {
                 auto& buf = image_uniform_buffers[name];
-                strcpy(buf.first, (char*)value);
+                memcpy(buf.first, (char*)value, strlen((char*)value)+1);
                 buf.second = LoadTextureFromString((char*)value);
+                SetShaderValueTexture(pixelShader, v.first, buf.second);
             }
             break;
         default:
