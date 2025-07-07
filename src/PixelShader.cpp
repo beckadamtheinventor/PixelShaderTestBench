@@ -153,9 +153,7 @@ bool PixelShader::IsReady() {
 
 void PixelShader::Update(float dt, int frame_counter) {
     BeginTextureMode(renderTexture);
-    // if (frame_counter < 3) {
-    //     ClearBackground(BLACK);
-    // }
+    ClearBackground({0,0,0,0});
     BeginShaderMode(pixelShader);
 
     if (other_uniform_buffers.count("time") >= 1) {
