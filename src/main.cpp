@@ -1,10 +1,11 @@
-#include <cctype>
+#include <cstdarg>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <list>
-#include <utility>
 #include <vector>
 
 #include <raylib.h>
@@ -22,6 +23,32 @@ PixelShader* pixelShaderReference = nullptr;
 std::list<PixelShader*> pixelShaders;
 FileDialogs::FileDialogManager fileDialogManager;
 int default_rt_width = 512;
+std::list<std::string> log_lines;
+std::ofstream __log_fd;
+
+void __TraceLogCallback(int level, const char* s, va_list args) {
+    const int buffer_size = 512;
+    const std::vector<const char*> log_levels {
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "FATAL",
+    };
+    TraceLogCallback a;
+    std::string str;
+    char buf[buffer_size];
+    str.reserve(buffer_size+8);
+    snprintf(buf, buffer_size, "[%s] ", log_levels[level - 1]);
+    str.assign(buf);
+    vsnprintf(buf, buffer_size, s, args);
+    str.append(buf);
+    log_lines.push_back(str);
+    printf("%s\n", str.c_str());
+    str.append("\n");
+    __log_fd.write(str.c_str(), str.length());
+}
 
 bool LoadPixelShader(std::string file) {
     if (!file.size()) return false;
@@ -80,6 +107,10 @@ int main(int argc, char** argv) {
     if (argc > 2) {
         default_rt_width = atoi(argv[2]);
     }
+
+    __log_fd.open("debug.log");
+    SetTraceLogCallback(__TraceLogCallback);
+
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1000, 600, "PixelShaderTestBench");
     SetTargetFPS(60);
@@ -105,6 +136,7 @@ int main(int argc, char** argv) {
 
     JsonConfig workspaceCfg = LoadWorkspace();
 
+    bool scroll_log_to_bottom = true;
     float dt = 0.0f;
     int frame_counter = 0;
     int target_fps = 60;
@@ -170,6 +202,16 @@ int main(int argc, char** argv) {
         }
         // display active file dialogs
         fileDialogManager.show();
+        // display log window
+        ImGui::Begin("Debug Log");
+        for (std::string line : log_lines) {
+            ImGui::Text("%s", line.c_str());
+        }
+        ImGui::Checkbox("Scroll log to bottom", &scroll_log_to_bottom);
+        if (scroll_log_to_bottom) {
+            ImGui::SetScrollY(ImGui::GetScrollMaxY());
+        }
+        ImGui::End();
 
         rlImGuiEnd();
         EndDrawing();
@@ -189,6 +231,7 @@ int main(int argc, char** argv) {
     }
 
     SaveWorkspace(workspaceCfg);
+    __log_fd.close();
 
     rlImGuiShutdown();
     CloseWindow();
