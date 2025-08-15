@@ -12,6 +12,7 @@
 #include "PixelShader.hpp"
 #include "FileDialogs.hpp"
 #include "nlohmann/json.hpp"
+#include "ImGuiColorTextEdit/TextEditor.h"
 
 const char* vertex_shader_code =
 "#version 330 core                  \n"
@@ -368,6 +369,16 @@ bool PixelShader::Load(const char* filename) {
             }
         }
     }
+    editor.SetText(fragment_code);
+    if (IsFileExtension(filename, ".glsl") || IsFileExtension(filename, "fs") || IsFileExtension(filename, "vs")) {
+        editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
+    } else if (IsFileExtension(filename, ".hlsl")) {
+        editor.SetLanguageDefinition(TextEditor::LanguageDefinition::HLSL());
+    } else if (IsFileExtension(filename, ".cpp") || IsFileExtension(filename, ".hpp")) {
+        editor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());
+    } else if (IsFileExtension(filename, ".c") || IsFileExtension(filename, ".h")) {
+        editor.SetLanguageDefinition(TextEditor::LanguageDefinition::C());
+    }
     // other_uniform_buffers.clear();
     other_uniform_buffers = new_other_uniform_buffers;
     return true;
@@ -454,11 +465,14 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
 }
 
 void PixelShader::DrawGUI() {
+    focused = false;
     ImGui::Begin((name + " Output").c_str(), &is_active);
+    focused |= ImGui::IsWindowFocused();
     rlImGuiImageSize(&renderTexture.texture, 512, 512);
     ImGui::End();
 
     ImGui::Begin((name + " Options").c_str(), &is_active);
+    focused |= ImGui::IsWindowFocused();
 
     if (ImGui::Button("Reload Shader")) {
         Reload();
@@ -495,6 +509,7 @@ void PixelShader::DrawGUI() {
     ImGui::End();
 
     ImGui::Begin((name + " Uniforms").c_str(), &is_active);
+    focused |= ImGui::IsWindowFocused();
     for (auto p : shader_locs) {
         if (p.first == "texture0") continue;
         auto v = p.second;
@@ -592,6 +607,106 @@ void PixelShader::DrawGUI() {
         }
     }
     ImGui::End();
+    DrawTextEditor();
+}
+
+
+void PixelShader::DrawTextEditor() {
+    auto cpos = editor.GetCursorPosition();
+    ImGui::Begin((name + " Text Editor").c_str(), &is_active, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_MenuBar);
+    focused |= ImGui::IsWindowFocused();
+    ImGui::SetWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+    if (ImGui::BeginMenuBar())
+    {
+        if (ImGui::BeginMenu("File"))
+        {
+            bool save = ImGui::MenuItem("Save", "Ctrl-S");
+            if (ImGui::MenuItem("Save As...", "Ctrl-Shift-S")) {
+                fileDialogManager.openIfNotAlready(("Save As (" + name + ")"), [this] (std::string) {
+                    auto textToSave = editor.GetText();
+                    std::ofstream fd(filename);
+                    if (fd.is_open()) {
+                        fd.write(textToSave.c_str(), textToSave.length());
+                        fd.close();
+                        return true;
+                    }
+                    return false;
+                }, true);
+            } else {
+                requested_reload = ImGui::MenuItem("Save and reload shader", "Ctrl-R");
+                if (save || requested_reload)
+                {
+                    auto textToSave = editor.GetText();
+                    std::ofstream fd(filename);
+                    if (fd.is_open()) {
+                        fd.write(textToSave.c_str(), textToSave.length());
+                        fd.close();
+                    }
+                }
+                if (ImGui::MenuItem("Close")) {
+                    is_active = false;
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Edit"))
+        {
+            bool ro = editor.IsReadOnly();
+            if (ImGui::MenuItem("Read-only mode", nullptr, &ro))
+                editor.SetReadOnly(ro);
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Undo", "Ctrl-Z", nullptr, !ro && editor.CanUndo()))
+                editor.Undo();
+            if (ImGui::MenuItem("Redo", "Ctrl-Y", nullptr, !ro && editor.CanRedo()))
+                editor.Redo();
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Copy", "Ctrl-C", nullptr, editor.HasSelection()))
+                editor.Copy();
+            if (ImGui::MenuItem("Cut", "Ctrl-X", nullptr, !ro && editor.HasSelection()))
+                editor.Cut();
+            if (ImGui::MenuItem("Delete", "Del", nullptr, !ro && editor.HasSelection()))
+                editor.Delete();
+            if (ImGui::MenuItem("Paste", "Ctrl-V", nullptr, !ro && ImGui::GetClipboardText() != nullptr))
+                editor.Paste();
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Select all", nullptr, nullptr))
+                editor.SetSelection(TextEditor::Coordinates(), TextEditor::Coordinates(editor.GetTotalLines(), 0));
+
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Theme"))
+        {
+            if (ImGui::MenuItem("Dark palette"))
+                editor.SetPalette(TextEditor::GetDarkPalette());
+            if (ImGui::MenuItem("Light palette"))
+                editor.SetPalette(TextEditor::GetLightPalette());
+            if (ImGui::MenuItem("Retro blue palette"))
+                editor.SetPalette(TextEditor::GetRetroBluePalette());
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
+
+    ImGui::Text("%6d/%-6d %6d lines  | %s | %s | %s | %s", cpos.mLine + 1, cpos.mColumn + 1, editor.GetTotalLines(),
+        editor.IsOverwrite() ? "Ovr" : "Ins",
+        editor.CanUndo() ? "*" : " ",
+        editor.GetLanguageDefinition().mName.c_str(), filename);
+
+    editor.Render("TextEditor");
+    ImGui::End();
+    if (focused && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_R)) {
+        requested_reload = true;
+    }
+    if (requested_reload) {
+        Reload();
+        requested_reload = false;
+    }
 }
 
 void PixelShader::SetUniform(std::string name, ShaderUniformType type, void* value) {

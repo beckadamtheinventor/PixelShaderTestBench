@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ImGuiColorTextEdit/TextEditor.h"
 #include "nlohmann/json.hpp"
 #include <cstring>
 #include <map>
@@ -69,10 +70,13 @@ class PixelShader {
     bool is_active;
     bool requested_clone : 1;
     bool requested_reference : 1;
+    bool requested_reload : 1;
+    bool focused : 1;
     std::string name;
     const char* filename;
     char image_input[IMAGE_NAME_BUFFER_LENGTH] = {0};
     char image_output[IMAGE_NAME_BUFFER_LENGTH] = {0};
+    TextEditor editor;
 
     PixelShader() {
         is_active = true;
@@ -100,6 +104,7 @@ class PixelShader {
     void SetRTWidth(int width);
     void InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, int loc);
     void DrawGUI();
+    void DrawTextEditor();
     void SetUniform(std::string name, ShaderUniformType type, void* value);
     void LoadUniforms(nlohmann::json json);
     nlohmann::json DumpUniforms();
