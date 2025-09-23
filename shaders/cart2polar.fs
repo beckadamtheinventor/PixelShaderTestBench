@@ -4,8 +4,8 @@ in vec2 fragTexCoord;
 uniform sampler2D texture0;
 
 uniform int enable_rotate = 1;
-uniform int enable_cart2polar = 1;
-uniform int enable_polar2cart = 0;
+uniform int enable_cartToPolar = 1;
+uniform int enable_polarToCart = 0;
 uniform int enable_vertical_flip = 0;
 uniform int enable_horizontal_flip = 0;
 
@@ -19,12 +19,7 @@ vec2 rotate2d(vec2 p, float r) {
 
 // input range 0..1, output range 0..1
 vec2 cart2polar(vec2 p) {
-    p -= 0.5;
-    float r = atan(p.y, p.x) * 0.5 / pi;
-    p *= 2.0;
-    float l = pow(p.x*p.x + p.y*p.y, 0.5) / pow(2.0, 0.5);
-    p = clamp(vec2(r, l), -1.0, 1.0);
-    return p;
+	return vec2(atan(p.y, p.x), length(p));
 }
 
 // input range 0..1, output range 0..1
@@ -44,10 +39,10 @@ void main() {
     if (enable_vertical_flip > 0) {
         coord.y = 1.0f - coord.y;
     }
-    if (enable_cart2polar > 0) {
+    if (enable_cartToPolar > 0) {
         coord = cart2polar(coord);
     }
-    if (enable_polar2cart > 0) {
+    if (enable_polarToCart > 0) {
         coord = polar2cart(coord);
     }
     vec4 texelColor = texture2D(texture0, coord);

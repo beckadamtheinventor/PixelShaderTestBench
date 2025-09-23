@@ -141,3 +141,4 @@ void main() {
     vec4 texelColor = texture2D(texture0, fragTexCoord);
     gl_FragColor = vec4(col, 1.0) * diffColor * texelColor;
 }
+

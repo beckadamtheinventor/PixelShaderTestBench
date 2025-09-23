@@ -191,7 +191,7 @@ bool FileDialog::Show(std::filesystem::path& selected) {
 
     if (saveas) {
         static char buf[512];
-        ImGui::InputTextWithHint("File Name", "file.json", buf, sizeof(buf));
+        ImGui::InputTextWithHint("File Name", "file", buf, sizeof(buf));
         ImGui::SameLine();
         if (ImGui::Button("Save")) {
             selected = path.append(buf);
@@ -242,9 +242,10 @@ void FileDialogManager::show() {
         auto& p = this->at(i);
         if (p.second.first != nullptr) {
             if (p.second.first->Show(selected)) {
-                if (selected.empty() || p.second.second(NarrowString16To8(selected.wstring()))) {
-                    p.second.first = nullptr;
+                if (!selected.empty()) {
+                    p.second.second(NarrowString16To8(selected.wstring()));
                 }
+                p.second.first = nullptr;
             }
         }
     }
@@ -264,11 +265,11 @@ bool FileDialogManager::isOpen(std::string id, FileDialog** dialog) {
     return false;
 }
 
-void FileDialogManager::open(std::string id, std::string title, std::function<bool(std::string)> cb, bool saveas, bool folder) {
-    this->push_back(std::make_pair(id, std::make_pair(new FileDialog(title, saveas, folder), cb)));
+void FileDialogManager::open(std::string id, std::string title, Callback cb, bool saveas, bool folder) {
+    this->push_back(std::make_pair(std::string(id), std::make_pair(new FileDialog(std::string(title), saveas, folder), cb)));
 }
 
-bool FileDialogManager::openIfNotAlready(std::string id, std::string title, std::function<bool(std::string)> cb, bool saveas, bool folder) {
+bool FileDialogManager::openIfNotAlready(std::string id, std::string title, Callback cb, bool saveas, bool folder) {
     if (isOpen(id)) {
         return false;
     }

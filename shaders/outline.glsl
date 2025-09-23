@@ -10,7 +10,9 @@
 
 in vec2 fragTexCoord;
 uniform sampler2D texture0;
-uniform sampler2D textureOverlay;
+uniform sampler2D texture1;
+
+
 uniform color4 outlineColor = color4(1, 1, 1, 1);
 uniform color4 backgroundColor = color4(0, 0, 0, 0);
 uniform slider(0, 10) blurRadius = 2.0;
@@ -90,7 +92,7 @@ void main() {
         v = max(max(col.r, col.g), max(col.b, col.a));
     }
     vec4 oc = vec4(outlineColor.rgb, v);
-    vec4 mid = texture(textureOverlay, coord);
+    vec4 mid = texture(texture1, coord);
     if (overlay > 0) {
         col = mix(oc, mid, mid.a);
     } else {
@@ -102,6 +104,12 @@ void main() {
     gl_FragColor = col;
     // gl_FragColor = vec4(coord, 1.0, 1.0);
 }
+
+
+
+
+
+
 
 
 

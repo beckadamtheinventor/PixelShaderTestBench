@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ImGuiColorTextEdit/TextEditor.h"
+#include "external/msf_gif.h"
 #include "nlohmann/json.hpp"
 #include <cstring>
 #include <map>
@@ -54,6 +55,7 @@ typedef struct {
 
 #define IMAGE_NAME_BUFFER_LENGTH 512
 
+void DrawRenderTextureQuad();
 Texture2D LoadTextureFromString(const char* str);
 void InputTextureOptions(Texture2D& tex);
 
@@ -63,11 +65,17 @@ class PixelShader {
     std::map<std::string, std::pair<char*, Texture2D>> image_uniform_buffers;
     std::map<std::string, Uniform> other_uniform_buffers;
     RenderTexture2D renderTexture, selfTexture;
-    Texture2D albedo_tex;
+    Color clearColor = {0, 0, 0, 0};
+    // Texture2D albedo_tex;
     Shader pixelShader = {0};
+    std::string saving_filename;
+    MsfGifState gifState;
     int rt_width;
     int num;
-    bool is_active;
+    unsigned int sampler_count = 0;
+    unsigned int frame_counter = 0;
+    unsigned int time_offset = 0;
+    bool is_active, saving_sequence, saving_single, saving_gif;
     bool requested_clone : 1;
     bool requested_reference : 1;
     bool requested_reload : 1;
@@ -82,6 +90,9 @@ class PixelShader {
         is_active = true;
         requested_clone = false;
         requested_reference = false;
+        saving_sequence = false;
+        saving_single = false;
+        saving_gif = false;
     }
     PixelShader(PixelShader* other) : PixelShader(other->filename) {
         Setup(other->rt_width);
@@ -94,15 +105,16 @@ class PixelShader {
         return ps.num == num;
     }
     bool IsReady();
-    void Update(float dt, int frame_counter);
+    void Update(float dt);
     protected:
     bool Load(const char* filename);
     public:
+    bool New(const char* filename);
     void Unload();
     void Reload();
     void Setup(int width);
     void SetRTWidth(int width);
-    void InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, int loc);
+    bool InputTextureFields(std::string str, int idx);
     void DrawGUI();
     void DrawTextEditor();
     void SetUniform(std::string name, ShaderUniformType type, void* value);

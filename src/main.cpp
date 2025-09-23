@@ -61,6 +61,18 @@ bool LoadPixelShader(std::string file) {
     return false;
 }
 
+bool NewPixelShader(std::string file) {
+    if (!file.size()) return false;
+    PixelShader* ps = new PixelShader();
+    ps->New(file.c_str());
+    ps->Setup(default_rt_width);
+    if (ps->IsReady()) {
+        pixelShaders.push_back(ps);
+        return true;
+    }
+    return false;
+}
+
 JsonConfig LoadWorkspace(std::string fname="workspace.json") {
     JsonConfig workspaceCfg(fname);
     if (workspaceCfg.contains("shaders")) {
@@ -98,6 +110,32 @@ void SaveWorkspace(JsonConfig& cfg) {
     cfg["shaders"] = json;
     cfg.save();
 }
+
+class WorkspaceSaveAsCB : public FileDialogs::Callback {
+    JsonConfig workspaceCfg;
+    public:
+    WorkspaceSaveAsCB(JsonConfig workspaceCfg) : workspaceCfg(workspaceCfg) {}
+    bool operator()(std::string fname) {
+        if (fname.size() < 1) return false;
+        return workspaceCfg.save(fname);
+    }
+};
+
+class LoadPixelShaderCB : public FileDialogs::Callback {
+    public:
+    bool operator()(std::string fname) {
+        return LoadPixelShader(fname);
+    }
+};
+
+class NewPixelShaderCB : public FileDialogs::Callback {
+    public:
+    bool operator()(std::string fname) {
+        return NewPixelShader(fname);
+    }
+};
+
+
 
 int main(int argc, char** argv) {
     char pixel_shader_file[IMAGE_NAME_BUFFER_LENGTH] = "shaders/noise.fs";
@@ -142,29 +180,33 @@ int main(int argc, char** argv) {
     int target_fps = 60;
     while (!WindowShouldClose()) {
         BeginDrawing();
-        ClearBackground(BLACK);
-        DrawFPS(1, 1);
         if (render_texture_update_timer >= 1.0 / render_texture_update_rate) {
             render_texture_update_timer -= 1.0 / render_texture_update_rate;
             for (auto& ps : pixelShaders) {
                 if (ps != nullptr && ps->IsReady()) {
-                    ps->Update(dt, frame_counter);
+                    ps->Update(dt);
                 }
             }
         }
+        ClearBackground(BLACK);
+        DrawFPS(1, 1);
         rlImGuiBegin();
 
         ImGui::Begin("Options");
         ImGui::InputTextWithHint("Pixel Shader File", "path to fragment shader", pixel_shader_file, sizeof(pixel_shader_file));
         if (ImGui::Button("Browse")) {
-            fileDialogManager.openIfNotAlready("BrowseForShaderInput", "Load Shader", [] (std::string s) { return LoadPixelShader(s); });
+            fileDialogManager.openIfNotAlready("BrowseForShaderInput", "Load Shader", LoadPixelShaderCB());
         }
         ImGui::SameLine();
-        if (ImGui::Button("Load Shader")) {
+        if (ImGui::Button("Load")) {
             frame_counter = -1;
             if (!LoadPixelShader(pixel_shader_file)) {
                 TraceLog(LOG_WARNING, "Failed to load Pixel shader %s!", pixel_shader_file);
             }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("New")) {
+            fileDialogManager.openIfNotAlready("BrowseForNewShader", "New Shader", NewPixelShaderCB(), true);
         }
         ImGui::SliderInt("Target updates per second", &render_texture_update_rate, 1, 60);
         if (ImGui::SliderInt("Target FPS", &target_fps, 10, 500)) {
@@ -178,9 +220,7 @@ int main(int argc, char** argv) {
         }
         ImGui::SameLine();
         if (ImGui::Button("Save As...")) {
-            fileDialogManager.openIfNotAlready("SaveWorkspaceAs", "Save Workspace As",
-                [&workspaceCfg] (std::string fname) { if (fname.size() < 1) return false; return workspaceCfg.save(fname); },
-            true);
+            fileDialogManager.openIfNotAlready("SaveWorkspaceAs", "Save Workspace As", WorkspaceSaveAsCB(workspaceCfg), true);
         }
         ImGui::End();
 

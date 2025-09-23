@@ -1,5 +1,6 @@
 
 #include <cstring>
+#include <ctime>
 #include <functional>
 #include <raylib.h>
 #include <fstream>
@@ -11,21 +12,52 @@
 
 #include "PixelShader.hpp"
 #include "FileDialogs.hpp"
+#include "external/msf_gif.h"
 #include "nlohmann/json.hpp"
 #include "ImGuiColorTextEdit/TextEditor.h"
+#include "rlgl.h"
+
+#pragma region Constants
 
 const char* vertex_shader_code =
-"#version 330 core                  \n"
-"in vec3 vertexPosition;     \n"
-"in vec2 vertexTexCoord;     \n"
-"in vec4 vertexColor;        \n"
-"out vec2 fragTexCoord;         \n"
-"uniform mat4 mvp;                  \n"
-"void main()                        \n"
-"{                                  \n"
-"    fragTexCoord = vec2(vertexTexCoord.x, vertexTexCoord.y); \n"
-"    gl_Position = mvp*vec4(vertexPosition, 1.0); \n"
-"}                                  \n";
+"#version 330 core\n"
+"//Special thanks to https://roxlu.com/2014/041/attributeless-vertex-shader-with-opengl\n"
+"out vec2 fragTexCoord;\n"
+"const vec2 pos[] = vec2[4]("
+"  vec2(-1.0, 1.0), "
+"  vec2(-1.0, -1.0), "
+"  vec2(1.0, 1.0), "
+"  vec2(1.0, -1.0)  "
+");"
+""
+" const vec2[] tex = vec2[4]("
+"   vec2(0.0, 0.0), "
+"   vec2(0.0, 1.0), "
+"   vec2(1.0, 0.0), "
+"   vec2(1.0, 1.0) "
+");"
+"void main() {"
+"  gl_Position = vec4(pos[gl_VertexID], 0.0, 1.0);"
+"  fragTexCoord = tex[gl_VertexID];"
+"}\n";
+
+const char* fragment_shader_code_default =
+"#version 330 core\n"
+"// these are here so the gui shows a color picker, sliders etc\n"
+"#define color3 vec3\n"
+"#define color4 vec4\n"
+"#define slider(a,b) float\n"
+"#define slider2(a,b) vec2\n"
+"#define slider3(a,b) vec3\n"
+"#define slider4(a,b) vec4\n"
+"in vec2 fragTexCoord;\n"
+"uniform sampler2D texture0;\n"
+"void main() {\n"
+"    vec4 texelColor = vec4(fragTexCoord, 0.0, 1.0);\n"
+"    gl_FragColor = texelColor;\n"
+"}\n";
+
+
 
 const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
     {"float", FLOAT},
@@ -42,10 +74,36 @@ const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
     {"sampler2D", SAMPLER2D},
 };
 
+#pragma endregion
+
+#pragma region Global Variables
+
 unsigned int numLoadedShadersEver = 0;
 
 std::vector<unsigned int> texturesNeedingCleanup;
 extern FileDialogs::FileDialogManager fileDialogManager;
+
+#pragma endregion
+
+#pragma region Global Functions
+
+void CheckOpenGLError(const char* str) {
+    auto err = glGetError();
+    if (err != 0) {
+        TraceLog(LOG_WARNING, "OpenGL Error: %u (where: %s)", err, str);
+    }
+}
+
+void DrawRenderTextureQuad() {
+    static unsigned int quadVAO = 0;
+    if (quadVAO == 0) {
+        glGenVertexArrays(1, &quadVAO);
+    }
+
+    glBindVertexArray(quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+}
 
 void PushBackTextureNeedingCleanup(const Texture2D& tex) {
     for (int i=0; i<texturesNeedingCleanup.size(); i++) {
@@ -88,6 +146,7 @@ Texture2D LoadTextureFromString(const char* str) {
     Texture2D tex;
     bool generate_image_texture = false;
     int r, g, b, a=255;
+    // TraceLog(LOG_INFO, "Loading texture from string: \"%s\"", str);
     if (!str[0]) {
         return BlankTexture();
     }
@@ -117,6 +176,61 @@ Texture2D LoadTextureFromString(const char* str) {
     }
     return tex;
 }
+
+#pragma endregion
+
+#pragma region Callback Functors
+
+class TextSaveAsCB : public FileDialogs::Callback {
+    std::string textToSave;
+    public:
+    TextSaveAsCB(std::string t) : textToSave(t) {}
+    bool operator()(std::string filename) {
+        std::ofstream fd(filename);
+        if (fd.is_open()) {
+            fd.write(textToSave.c_str(), textToSave.length()-1);
+            fd.close();
+            return true;
+        }
+        return false;
+    }
+};
+
+class InputTextureFieldsLoadCB : public FileDialogs::Callback {
+    char* buf;
+    bool* returned;
+    // Uniform* uniform;
+    // Texture2D& tex;
+    // int loc;
+    // Shader pixelShader;
+    public:
+    // InputTextureFieldsLoadCB(char* buf, Uniform* uniform, Texture2D& tex, int loc, Shader pixelShader) :
+    //     buf(buf), uniform(uniform), tex(tex), loc(loc), pixelShader(pixelShader) {}
+    InputTextureFieldsLoadCB(char* buf, bool* returned) : buf(buf), returned(returned) {}
+    bool operator()(std::string p) {
+        if (!p.length()) return false;
+        strncpy(buf, p.c_str(), IMAGE_NAME_BUFFER_LENGTH-1);
+        buf[IMAGE_NAME_BUFFER_LENGTH-1] = 0;
+        // Texture2D newtex = LoadTextureFromString(p.c_str());
+        // if (IsTextureReady(newtex)) {
+            // GenTextureMipmaps(&newtex);
+            // if (uniform != nullptr) {
+            //     uniform->isSet = true;
+            // }
+            // CleanupTexture(tex);
+            // tex = newtex;
+            // if (loc != -1) {
+            //     SetShaderValueTexture(pixelShader, loc, tex);
+            // }
+        // }
+        if (returned != nullptr) *returned = true;
+        return true;
+    }
+};
+
+#pragma endregion
+
+#pragma region PixelShader functions
 
 PixelShader::PixelShader(const char* fname) : PixelShader() {
     filename = strdup(fname);
@@ -160,49 +274,81 @@ bool PixelShader::IsReady() {
     return IsShaderReady(pixelShader);
 }
 
-void PixelShader::Update(float dt, int frame_counter) {
-    BeginTextureMode(renderTexture);
-    ClearBackground({0,0,0,0});
-    BeginShaderMode(pixelShader);
+void PixelShader::Update(float dt) {
+
+    if (saving_sequence || saving_single || saving_gif) {
+        std::string filename = saving_filename;
+        if (saving_sequence) {
+            filename = std::string(GetFileNameWithoutExt(saving_filename.c_str())) +
+                std::to_string(frame_counter) + GetFileExtension(saving_filename.c_str());
+        }
+        Image img = LoadImageFromTexture(renderTexture.texture);
+        if (saving_gif) {
+            msf_gif_frame(&gifState, (uint8_t*)img.data, dt*100.0f, 8, rt_width*4);
+        } else {
+            if (IsFileExtension(filename.c_str(), ".jpg") || IsFileExtension(filename.c_str(), ".jpeg")) {
+                ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+            }
+            if (!ExportImage(img, filename.c_str())) {
+                TraceLog(LOG_WARNING, "Failed to export image %s!", filename.c_str());
+            }
+        }
+    }
+
+    // BeginTextureMode(renderTexture);
+    rlEnableFramebuffer(renderTexture.id);
+    ClearBackground(clearColor);
 
     if (other_uniform_buffers.count("time") >= 1) {
-        float f = clock() / (float)CLOCKS_PER_SEC;
+        float f = clock() / (float)CLOCKS_PER_SEC - time_offset;
         other_uniform_buffers["time"].f = f;
         SetShaderValue(pixelShader, shader_locs["time"].first, &f, SHADER_UNIFORM_FLOAT);
     }
     if (other_uniform_buffers.count("dt") >= 1) {
-        other_uniform_buffers["time"].f = dt;
-        SetShaderValue(pixelShader, shader_locs["time"].first, &dt, SHADER_UNIFORM_FLOAT);
+        other_uniform_buffers["dt"].f = dt;
+        SetShaderValue(pixelShader, shader_locs["dt"].first, &dt, SHADER_UNIFORM_FLOAT);
     }
     if (other_uniform_buffers.count("frame") >= 1) {
         other_uniform_buffers["frame"].i = frame_counter;
         SetShaderValue(pixelShader, shader_locs["frame"].first, &frame_counter, SHADER_UNIFORM_INT);
     }
-    for (auto loc : shader_locs) {
-        if (loc.second.second == SAMPLER2D) {
-            if (image_uniform_buffers.count(loc.first) > 0) {
-                Texture2D& tex = image_uniform_buffers[loc.first].second;
-                if (IsTextureReady(tex)) {
-                    SetShaderValueTexture(pixelShader, loc.second.first, tex);
-                }
-            }
-        }
-    }
+
     // if (shader_locs.count("selfTexture") >= 1) {
     //     if (IsTextureReady(selfTexture.texture)) {
     //         SetShaderValueTexture(pixelShader, shader_locs["selfTexture"].first, selfTexture.texture);
     //     }
     // }
 
-    if (IsTextureReady(albedo_tex)) {
-        SetShaderValueTexture(pixelShader, SHADER_LOC_MAP_ALBEDO, albedo_tex);
-        Rectangle srcrec {0.0, 0.0, (float)albedo_tex.width, (float)albedo_tex.height};
-        Rectangle dstrec {0.0, 0.0, (float)renderTexture.texture.width, (float)renderTexture.texture.height};
-        DrawTexturePro(albedo_tex, srcrec, dstrec, {0.0, 0.0}, 0.0, WHITE);
-    } else {
-        DrawRectangle(0, 0, renderTexture.texture.width, renderTexture.texture.height, WHITE);
+    // this is seperate because SetShaderValueTexture unbinds the shader program after it runs
+    // for (auto p : shader_locs) {
+    //     if (p.second.second == SAMPLER2D && image_uniform_buffers.count(p.first) > 0) {
+    //         auto im = image_uniform_buffers[p.first];
+    //         if (IsTextureReady(im.second)) {
+    //             SetShaderValueTexture(pixelShader, p.second.first, im.second);
+    //         }
+    //     }
+    // }
+
+    // bind the textures to the GL state manually
+    glUseProgram(pixelShader.id);
+    for (auto p : shader_locs) {
+        if (p.second.second == SAMPLER2D && image_uniform_buffers.count(p.first) > 0) {
+            auto im = image_uniform_buffers[p.first];
+            if (IsTextureReady(im.second)) {
+                glUniform1i(p.second.first, p.second.first);
+                glActiveTexture(GL_TEXTURE0 + p.second.first);
+                glBindTexture(GL_TEXTURE_2D, im.second.id);
+            }
+        }
     }
-    EndShaderMode();
+
+    // DrawRectangle(0, 0, renderTexture.texture.width, renderTexture.texture.height, WHITE);
+
+    // BeginShaderMode(pixelShader);
+
+    glViewport(0, 0, rt_width, rt_width);
+    DrawRenderTextureQuad();
+    // EndShaderMode();
     EndTextureMode();
     // BeginTextureMode(selfTexture);
     // ClearBackground(BLACK);
@@ -211,6 +357,7 @@ void PixelShader::Update(float dt, int frame_counter) {
     // DrawTexturePro(renderTexture.texture, srcrec, dstrec, {0.0, 0.0}, 0.0, WHITE);
     // EndTextureMode();
     std::swap(selfTexture, renderTexture);
+    frame_counter++;
 }
 
 
@@ -242,7 +389,8 @@ bool PixelShader::Load(const char* filename) {
 
     std::map<std::string, Uniform> new_other_uniform_buffers;
     shader_locs.clear();
-    for (size_t i = 0; i < len; i++) {
+    size_t i = 0;
+    while (i < len) {
         if (!memcmp(&fragment_code[i], "uniform ", strlen("uniform "))) {
             // TraceLog(LOG_INFO, "found uniform at offset %u", i);
             i += strlen("uniform ");
@@ -264,14 +412,20 @@ bool PixelShader::Load(const char* filename) {
                         }
                         while (eos < eol && (isalnum(*eos) || *eos == '_')) eos++;
                         std::string name = std::string(&fragment_code[j], eos - &fragment_code[j]);
-                        int loc = rlGetLocationUniform(pixelShader.id, name.c_str());
+                        int loc = -1;
+                        if (p.second == SAMPLER2D) {
+                            // location for samplers is different
+                            loc = sampler_count++;
+                        } else {
+                            loc = rlGetLocationUniform(pixelShader.id, name.c_str());
+                        }
                         // if (name == "texture0") {
                         //     continue;
                         // }
                         if (loc == -1) {
                             TraceLog(LOG_WARNING,
                                 "Failed to locate uniform \"%s\" in shader despite it appearing in the shader source!", name.c_str());
-                        } else {
+                        } else if (loc >= 0) {
                             Uniform uni = {0};
                             shader_locs.insert(std::make_pair(name, std::make_pair(loc, p.second)));
                             if (p.second.isRange) {
@@ -326,8 +480,8 @@ bool PixelShader::Load(const char* filename) {
                                     case SLIDER4:
                                         SetShaderValue(pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC4);
                                         break;
-                                    case UNKNOWN:
                                     case SAMPLER2D:
+                                    case UNKNOWN:
                                         break;
                                 }
                             } else {
@@ -367,6 +521,8 @@ bool PixelShader::Load(const char* filename) {
                         break;
                 }
             }
+        } else {
+            i++;
         }
     }
     editor.SetText(fragment_code);
@@ -384,6 +540,19 @@ bool PixelShader::Load(const char* filename) {
     return true;
 }
 
+bool PixelShader::New(const char* filename) {
+    std::ofstream fd(filename, std::ios::out | std::ios::binary);
+    if (!fd.is_open()) {
+        return false;
+    }
+    fd.write(fragment_shader_code_default, strlen(fragment_shader_code_default));
+    fd.close();
+    bool success = Load(strdup(filename));
+    name = "Shader " + std::to_string(numLoadedShadersEver);
+    num = numLoadedShadersEver++;
+    return success;
+}
+
 void PixelShader::Reload() {
     int w = rt_width;
     nlohmann::json j = DumpUniforms();
@@ -394,7 +563,7 @@ void PixelShader::Reload() {
 }
 
 void PixelShader::Unload() {
-    CleanupTexture(albedo_tex);
+    // CleanupTexture(albedo_tex);
     UnloadRenderTexture(renderTexture);
     UnloadRenderTexture(selfTexture);
     UnloadShader(pixelShader);
@@ -404,7 +573,7 @@ void PixelShader::Unload() {
 }
 
 void PixelShader::Setup(int width) {
-    albedo_tex = BlankTexture();
+    // albedo_tex = BlankTexture();
     rt_width = width;
     renderTexture = LoadRenderTexture(rt_width, rt_width);
     selfTexture = LoadRenderTexture(rt_width, rt_width);
@@ -418,40 +587,34 @@ void PixelShader::SetRTWidth(int width) {
     selfTexture = LoadRenderTexture(rt_width, rt_width);
 }
 
-void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* uniform, Texture2D& tex, int loc) {
-    ImGui::InputTextWithHint(str, "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
-    if (ImGui::Button("Browse")) {
-        fileDialogManager.openIfNotAlready("BrowseForImageInput", "Select an Image", [uniform, &tex, this, loc, buf] (std::string p) -> bool {
-            if (!p.length()) return false;
-            Texture2D newtex = LoadTextureFromString(p.c_str());
-            if (IsTextureReady(newtex)) {
-                memcpy(buf, p.c_str(), p.length()+1);
-                GenTextureMipmaps(&newtex);
-                if (uniform != nullptr) {
-                    uniform->isSet = true;
-                }
-                CleanupTexture(tex);
-                tex = newtex;
-                if (loc != -1) {
-                    SetShaderValueTexture(pixelShader, loc, tex);
-                }
-            }
-            return true;
-        });
+bool PixelShader::InputTextureFields(std::string str, int idx) {
+    if (image_uniform_buffers.count(str) < 1) {
+        image_uniform_buffers.insert(
+            std::make_pair(str, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
     }
+    static char buf[IMAGE_NAME_BUFFER_LENGTH] = {0};
+    auto& tex = image_uniform_buffers[str].second;
+    ImGui::PushID(str.c_str());
+    ImGui::InputTextWithHint(str.c_str(), "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
+    static bool browse_returned = false;
+    bool isSet = false;
+    if (ImGui::Button("Browse")) {
+        if (image_uniform_buffers.count(str) >= 1 && image_uniform_buffers[str].first != nullptr) {
+            strncpy(buf, image_uniform_buffers[str].first, IMAGE_NAME_BUFFER_LENGTH-1);
+            buf[IMAGE_NAME_BUFFER_LENGTH-1] = 0;
+        }
+        std::string id = std::string("BrowseForImageInput ")+std::string(str);
+        fileDialogManager.openIfNotAlready(id, "Select an Image ("+std::string(str)+")",
+            InputTextureFieldsLoadCB(buf, &browse_returned));
+    }
+    if (browse_returned) {
+        browse_returned = false;
+        SetUniform(str, SAMPLER2D, buf);
+    }
+
     ImGui::SameLine();
     if (ImGui::Button("Reload Image")) {
-        Texture2D newtex = LoadTextureFromString(buf);
-        if (IsTextureReady(newtex)) {
-            if (uniform != nullptr) {
-                uniform->isSet = true;
-            }
-            CleanupTexture(tex);
-            tex = newtex;
-            if (loc != -1) {
-                SetShaderValueTexture(pixelShader, loc, tex);
-            }
-        }
+        SetUniform(str, SAMPLER2D, buf);
     }
     InputTextureOptions(tex);
     if (pixelShaderReference != nullptr) {
@@ -462,6 +625,8 @@ void PixelShader::InputTextureFields(const char* str, char* buf, Uniform* unifor
             pixelShaderReference = nullptr;
         }
     }
+    ImGui::PopID();
+    return isSet;
 }
 
 void PixelShader::DrawGUI() {
@@ -477,15 +642,49 @@ void PixelShader::DrawGUI() {
     if (ImGui::Button("Reload Shader")) {
         Reload();
     }
-    InputTextureFields("Diffuse/Albedo", image_input, &other_uniform_buffers["texture0"], albedo_tex, -1);
-    ImGui::InputTextWithHint("Image Output", "path to image to save", image_output, sizeof(image_output));
-    if (ImGui::Button("Save Image")) {
-        Image img = LoadImageFromTexture(renderTexture.texture);
-        if (IsFileExtension(image_output, ".jpg") || IsFileExtension(image_output, ".jpeg")) {
-            ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Time")) {
+        frame_counter = 0;
+        time_offset = clock() / CLOCKS_PER_SEC;
+    }
+    ImVec4 clearColorF = ImGui::ColorConvertU32ToFloat4(*(uint32_t*)&clearColor);
+    if (ImGui::ColorEdit4("Clear Color", (float*)&clearColorF)) {
+        *(uint32_t*)&clearColor = ImGui::ColorConvertFloat4ToU32(clearColorF);
+    }
+    // InputTextureFields("Diffuse/Albedo", image_input, &other_uniform_buffers["texture0"], albedo_tex, -1);
+    if (ImGui::InputTextWithHint("Image Output", "path to image to save", image_output, sizeof(image_output))) {
+        saving_filename = std::string(image_output);
+    }
+    if (image_output[0] != 0) {
+        if (ImGui::Button("Save Image") && !saving_sequence) {
+            saving_single = true;
         }
-        if (!ExportImage(img, image_output)) {
-            TraceLog(LOG_WARNING, "Failed to export image %s!", image_output);
+        ImGui::SameLine();
+        ImGui::Checkbox("Save Sequence", &saving_sequence);
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Save Gif", &saving_gif)) {
+            if (saving_gif) {
+                // started recording
+                gifState = {};
+                msf_gif_begin(&gifState, rt_width, rt_width);
+                TraceLog(LOG_INFO, "Started recording gif...");
+            } else {
+                // finished recording
+                TraceLog(LOG_INFO, "Finishing recording gif...");
+                MsfGifResult result = msf_gif_end(&gifState);
+                if (result.data != nullptr) {
+                    std::ofstream fd(saving_filename, std::ios::out | std::ios::binary);
+                    if (fd.is_open()) {
+                        fd.write((char*)result.data, result.dataSize);
+                        fd.close();
+                        TraceLog(LOG_INFO, "Gif created successfuly! Size: %u Kb", result.dataSize/1024);
+                    } else {
+                        TraceLog(LOG_ERROR, "Failed to create gif file!");
+                    }
+                } else {
+                    TraceLog(LOG_ERROR, "Failed to finalize gif!");
+                }
+            }
         }
     }
     if (ImGui::InputInt("Render Texture Size", &rt_width)) {
@@ -511,9 +710,8 @@ void PixelShader::DrawGUI() {
     ImGui::Begin((name + " Uniforms").c_str(), &is_active);
     focused |= ImGui::IsWindowFocused();
     for (auto p : shader_locs) {
-        if (p.first == "texture0") continue;
         auto v = p.second;
-        Uniform* uniform;
+        Uniform* uniform = nullptr;
         if (v.second<SAMPLER2D) {
             if (other_uniform_buffers.count(p.first) >= 1) {
                 uniform = &other_uniform_buffers[p.first];
@@ -593,14 +791,7 @@ void PixelShader::DrawGUI() {
                 if (p.first == "selfTexture") {
                     break;
                 }
-                if (image_uniform_buffers.count(p.first) < 1) {
-                    image_uniform_buffers.insert(
-                        std::make_pair(p.first, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
-                }
-                {
-                    auto buf = image_uniform_buffers[p.first];
-                    InputTextureFields(p.first.c_str(), buf.first, uniform, buf.second, p.second.first);
-                }
+                InputTextureFields(p.first, p.second.first);
                 break;
             default:
                 break;
@@ -610,28 +801,21 @@ void PixelShader::DrawGUI() {
     DrawTextEditor();
 }
 
-
 void PixelShader::DrawTextEditor() {
     auto cpos = editor.GetCursorPosition();
     ImGui::Begin((name + " Text Editor").c_str(), &is_active, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_MenuBar);
     focused |= ImGui::IsWindowFocused();
+    focused |= editor.IsHandleKeyboardInputsEnabled();
     ImGui::SetWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
     if (ImGui::BeginMenuBar())
     {
         if (ImGui::BeginMenu("File"))
         {
             bool save = ImGui::MenuItem("Save", "Ctrl-S");
-            if (ImGui::MenuItem("Save As...", "Ctrl-Shift-S")) {
-                fileDialogManager.openIfNotAlready(("Save As (" + name + ")"), [this] (std::string) {
-                    auto textToSave = editor.GetText();
-                    std::ofstream fd(filename);
-                    if (fd.is_open()) {
-                        fd.write(textToSave.c_str(), textToSave.length());
-                        fd.close();
-                        return true;
-                    }
-                    return false;
-                }, true);
+            bool saveas = ImGui::MenuItem("Save As...", "Ctrl-Shift-S");
+            saveas |= focused && IsKeyPressed(KEY_S) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
+            if (saveas) {
+                fileDialogManager.openIfNotAlready(("Save As (" + name + ")"), TextSaveAsCB(editor.GetText()), true);
             } else {
                 requested_reload = ImGui::MenuItem("Save and reload shader", "Ctrl-R");
                 if (save || requested_reload)
@@ -639,7 +823,7 @@ void PixelShader::DrawTextEditor() {
                     auto textToSave = editor.GetText();
                     std::ofstream fd(filename);
                     if (fd.is_open()) {
-                        fd.write(textToSave.c_str(), textToSave.length());
+                        fd.write(textToSave.c_str(), textToSave.length() - 1);
                         fd.close();
                     }
                 }
@@ -711,9 +895,9 @@ void PixelShader::DrawTextEditor() {
 
 void PixelShader::SetUniform(std::string name, ShaderUniformType type, void* value) {
     if (shader_locs.count(name) < 1) return;
-    if (other_uniform_buffers.count(name) < 1) return;
+    if (type < SAMPLER2D && other_uniform_buffers.count(name) < 1) return;
     auto v = shader_locs[name];
-    Uniform* uniform = &other_uniform_buffers[name];
+    Uniform* uniform = type == SAMPLER2D ? nullptr : &other_uniform_buffers[name];
     switch (type) {
         case INT:
             SetShaderValue(pixelShader, v.first, value, SHADER_UNIFORM_INT);
@@ -752,15 +936,17 @@ void PixelShader::SetUniform(std::string name, ShaderUniformType type, void* val
             }
             if (image_uniform_buffers.count(name) < 1) {
                 image_uniform_buffers.insert(
-                    std::make_pair(name, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
+                    std::make_pair(name, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0}))
+                );
             } else {
                 CleanupTexture(image_uniform_buffers[name].second);
             }
             {
                 auto& buf = image_uniform_buffers[name];
-                memcpy(buf.first, (char*)value, strlen((char*)value)+1);
-                buf.second = LoadTextureFromString((char*)value);
-                SetShaderValueTexture(pixelShader, v.first, buf.second);
+                strncpy(buf.first, (char*)value, IMAGE_NAME_BUFFER_LENGTH-1);
+                buf.first[IMAGE_NAME_BUFFER_LENGTH-1] = 0;
+                buf.second = LoadTextureFromString(buf.first);
+                // SetShaderValueTexture(pixelShader, v.first, buf.second);
             }
             break;
         default:
@@ -826,7 +1012,10 @@ void PixelShader::LoadUniforms(nlohmann::json json) {
                     }
                     break;
                 case SAMPLER2D:
-
+                    if (j["v"].is_string()) {
+                        std::string tex = j["v"].get<std::string>();
+                        SetUniform(p.key(), SAMPLER2D, (void*)tex.c_str());
+                    }
                 default:
                     break;
             }
@@ -838,12 +1027,27 @@ nlohmann::json PixelShader::DumpUniforms() {
     nlohmann::json json;
     for (auto l : shader_locs) {
         std::string key = l.first;
-        if (other_uniform_buffers.count(key) >= 1) {
+        ShaderUniformType type = l.second.second;
+        bool should_include = true;
+        nlohmann::json j = {{"t", type}};
+        if (type == SAMPLER2D) {
+            if (key == "selfTexture") {
+                continue;
+            }
+            // printf("Dumping Sampler2D\n");
+            if (image_uniform_buffers.count(key) < 1) {
+                should_include = false;
+                // printf("Sampler2D Value not found\n");
+            } else if (strlen(image_uniform_buffers[key].first) > 0) {
+                j["v"] = std::string(image_uniform_buffers[key].first);
+                // printf("Sampler2D Value: %s\n", image_uniform_buffers[key].first);
+            } else {
+                should_include = false;
+                // printf("Sampler2D Value empty\n");
+            }
+        } else if (other_uniform_buffers.count(key) > 0) {
             Uniform uniform = other_uniform_buffers[key];
-            ShaderUniformType type = l.second.second;
-            if (type == SAMPLER2D || uniform.isSet) {
-                bool should_include = true;
-                nlohmann::json j = {{"t", type}};
+            if (uniform.isSet) {
                 switch (type) {
                 case UNKNOWN:
                     break;
@@ -869,20 +1073,14 @@ nlohmann::json PixelShader::DumpUniforms() {
                     j["v"] = nlohmann::json::array({uniform.v[0], uniform.v[1], uniform.v[2], uniform.v[3]});
                     break;
                 case SAMPLER2D:
-                    if (image_uniform_buffers.count(key) < 1) {
-                        should_include = false;
-                    } else if (strlen(image_uniform_buffers[key].first) > 0) {
-                        j["v"] = std::string(image_uniform_buffers[key].first);
-                    } else {
-                        should_include = false;
-                    }
                     break;
-                }
-                if (should_include) {
-                    json[key] = j;
                 }
             }
         }
+        if (should_include) {
+            json[key] = j;
+        }
     }
+    // printf("%s\n", json.dump().c_str());
     return json;
 }

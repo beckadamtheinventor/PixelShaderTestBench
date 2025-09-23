@@ -26,17 +26,19 @@ namespace FileDialogs {
         bool Show(std::filesystem::path& selected);
     };
 
+    typedef std::function<bool(std::string)> Callback;
+
     class FileDialogManager :
-    protected std::vector<std::pair<std::string,std::pair<FileDialog*,std::function<bool (std::string)>>>> {
+    protected std::vector<std::pair<std::string,std::pair<FileDialog*,Callback>>> {
         public:
         void show();
         bool isOpen(std::string name, FileDialog** dialog=nullptr);
-        void open(std::string id, std::string title, std::function<bool(std::string)> cb, bool saveas=false, bool folder=false);
-        void open(std::string title, std::function<bool(std::string)> cb, bool saveas=false, bool folder=false){
+        void open(std::string id, std::string title, Callback cb, bool saveas=false, bool folder=false);
+        void open(std::string title, Callback cb, bool saveas=false, bool folder=false){
             open(title, title, cb, saveas, folder);
         }
-        bool openIfNotAlready(std::string id, std::string title, std::function<bool(std::string)> cb, bool saveas=false, bool folder=false);
-        bool openIfNotAlready(std::string title, std::function<bool(std::string)> cb, bool saveas=false, bool folder=false){ 
+        bool openIfNotAlready(std::string id, std::string title, Callback cb, bool saveas=false, bool folder=false);
+        bool openIfNotAlready(std::string title, Callback cb, bool saveas=false, bool folder=false){ 
             return openIfNotAlready(title, title, cb, saveas, folder);
         }
     };

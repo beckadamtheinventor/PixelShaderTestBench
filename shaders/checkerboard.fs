@@ -22,6 +22,8 @@ uniform color3 color_right = BLUE;
 uniform color3 background1 = WHITE;
 uniform color3 background2 = DARKGRAY;
 
+uniform sampler2D textureDummy;
+
 
 void main() {
     ivec2 icoord = ivec2(fragTexCoord * 8.0);
@@ -38,3 +40,10 @@ void main() {
     gl_FragColor = texelColor*diffuse;
     // gl_FragColor = vec4(coord, 1.0, 1.0);
 }
+
+
+
+
+
+
+
