@@ -184,7 +184,7 @@ int main(int argc, char** argv) {
             render_texture_update_timer -= 1.0 / render_texture_update_rate;
             for (auto& ps : pixelShaders) {
                 if (ps != nullptr && ps->IsReady()) {
-                    ps->Update(dt);
+                    ps->Update(dt * render_texture_update_rate / (float)target_fps);
                 }
             }
         }

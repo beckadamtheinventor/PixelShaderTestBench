@@ -8,6 +8,8 @@
 #define slider4(a,b) vec4
 in vec2 fragTexCoord;
 
+// referenced heavily: https://www.shadertoy.com/view/4f33Dl
+
 uniform sampler2D texture0;
 
 uniform slider2(0.5, 10.0) copies = vec2(3.5, 4.0);
