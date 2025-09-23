@@ -278,8 +278,9 @@ void PixelShader::Update(float dt) {
 
     if (saving_sequence || saving_single || saving_gif) {
         std::string filename = saving_filename;
-        if (saving_sequence) {
-            filename = std::string(GetFileNameWithoutExt(saving_filename.c_str())) +
+        if (!saving_gif) {
+            filename = std::string(GetDirectoryPath(saving_filename.c_str())) + "/" +
+                GetFileNameWithoutExt(saving_filename.c_str()) +
                 std::to_string(frame_counter) + GetFileExtension(saving_filename.c_str());
         }
         Image img = LoadImageFromTexture(renderTexture.texture);
@@ -292,6 +293,7 @@ void PixelShader::Update(float dt) {
             if (!ExportImage(img, filename.c_str())) {
                 TraceLog(LOG_WARNING, "Failed to export image %s!", filename.c_str());
             }
+            saving_single = false;
         }
     }
 
@@ -300,9 +302,8 @@ void PixelShader::Update(float dt) {
     ClearBackground(clearColor);
 
     if (other_uniform_buffers.count("time") >= 1) {
-        float f = clock() / (float)CLOCKS_PER_SEC - time_offset;
-        other_uniform_buffers["time"].f = f;
-        SetShaderValue(pixelShader, shader_locs["time"].first, &f, SHADER_UNIFORM_FLOAT);
+        other_uniform_buffers["time"].f = runtime;
+        SetShaderValue(pixelShader, shader_locs["time"].first, &runtime, SHADER_UNIFORM_FLOAT);
     }
     if (other_uniform_buffers.count("dt") >= 1) {
         other_uniform_buffers["dt"].f = dt;
@@ -358,6 +359,7 @@ void PixelShader::Update(float dt) {
     // EndTextureMode();
     std::swap(selfTexture, renderTexture);
     frame_counter++;
+    runtime += dt;
 }
 
 
@@ -645,7 +647,7 @@ void PixelShader::DrawGUI() {
     ImGui::SameLine();
     if (ImGui::Button("Reset Time")) {
         frame_counter = 0;
-        time_offset = clock() / CLOCKS_PER_SEC;
+        runtime = clock() / CLOCKS_PER_SEC;
     }
     ImVec4 clearColorF = ImGui::ColorConvertU32ToFloat4(*(uint32_t*)&clearColor);
     if (ImGui::ColorEdit4("Clear Color", (float*)&clearColorF)) {

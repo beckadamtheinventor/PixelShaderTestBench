@@ -74,7 +74,7 @@ class PixelShader {
     int num;
     unsigned int sampler_count = 0;
     unsigned int frame_counter = 0;
-    unsigned int time_offset = 0;
+    float runtime = 0;
     bool is_active, saving_sequence, saving_single, saving_gif;
     bool requested_clone : 1;
     bool requested_reference : 1;
