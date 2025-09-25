@@ -114,7 +114,7 @@ class PixelShader {
     void Reload();
     void Setup(int width);
     void SetRTWidth(int width);
-    bool InputTextureFields(std::string str, int idx);
+    bool InputTextureFields(std::string str);
     void DrawGUI();
     void DrawTextEditor();
     void SetUniform(std::string name, ShaderUniformType type, void* value);

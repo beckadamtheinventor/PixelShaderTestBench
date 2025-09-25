@@ -50,12 +50,23 @@ const char* fragment_shader_code_default =
 "#define slider2(a,b) vec2\n"
 "#define slider3(a,b) vec3\n"
 "#define slider4(a,b) vec4\n"
+"\n"
 "in vec2 fragTexCoord;\n"
 "uniform sampler2D texture0;\n"
+"\n"
+"// Compatibility for shadertoy shaders\n"
+"// Note: you will need to add \"uniform\" to option values for them to show up in the GUI.\n"
+"uniform vec2 iResolution = vec2(1,1);\n"
+"#define iTime time\n"
+"#define iChannel0 texture0\n"
+"\n"
+"void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n"
+"\tfragColor = vec4(fragCoord, 0.0, 1.0);\n"
+"}\n"
 "void main() {\n"
-"    vec4 texelColor = vec4(fragTexCoord, 0.0, 1.0);\n"
-"    gl_FragColor = texelColor;\n"
-"}\n";
+"\tmainImage(gl_FragColor, fragTexCoord);\n"
+"}\n"
+;
 
 
 
@@ -127,17 +138,21 @@ int TextureNeedsCleanup(const Texture2D& tex) {
 void CleanupTexture(Texture2D& tex) {
     int i = TextureNeedsCleanup(tex);
     if (i != -1) {
+        TraceLog(LOG_DEBUG, "Cleaning up texture ID %u", tex.id);
         UnloadTexture(tex);
         texturesNeedingCleanup[i] = -1;
         tex = {0};
+    } else {
+        TraceLog(LOG_DEBUG, "Not cleaning up texture ID %u", tex.id);
     }
 }
 
 Texture2D BlankTexture() {
+    TraceLog(LOG_DEBUG, "Creating blank texture");
     Image blankImage = GenImageColor(1, 1, WHITE);
     Texture2D blankTexture = LoadTextureFromImage(blankImage);
-    UnloadImage(blankImage);
     PushBackTextureNeedingCleanup(blankTexture);
+    UnloadImage(blankImage);
     return blankTexture;
 }
 
@@ -285,7 +300,7 @@ void PixelShader::Update(float dt) {
         }
         Image img = LoadImageFromTexture(renderTexture.texture);
         if (saving_gif) {
-            msf_gif_frame(&gifState, (uint8_t*)img.data, dt*100.0f, 8, rt_width*4);
+            msf_gif_frame(&gifState, (uint8_t*)img.data, dt*100.0f, 12, rt_width*4);
         } else {
             if (IsFileExtension(filename.c_str(), ".jpg") || IsFileExtension(filename.c_str(), ".jpeg")) {
                 ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
@@ -321,25 +336,27 @@ void PixelShader::Update(float dt) {
     // }
 
     // this is seperate because SetShaderValueTexture unbinds the shader program after it runs
-    // for (auto p : shader_locs) {
-    //     if (p.second.second == SAMPLER2D && image_uniform_buffers.count(p.first) > 0) {
-    //         auto im = image_uniform_buffers[p.first];
-    //         if (IsTextureReady(im.second)) {
-    //             SetShaderValueTexture(pixelShader, p.second.first, im.second);
-    //         }
-    //     }
-    // }
+    for (auto p : shader_locs) {
+        if (p.second.second == SAMPLER2D && image_uniform_buffers.count(p.first) > 0) {
+            auto& im = image_uniform_buffers[p.first];
+            if (!IsTextureReady(im.second)) {
+                im.second = BlankTexture();
+            }
+            SetShaderValueTexture(pixelShader, p.second.first, im.second);
+        }
+    }
 
     // bind the textures to the GL state manually
     glUseProgram(pixelShader.id);
     for (auto p : shader_locs) {
         if (p.second.second == SAMPLER2D && image_uniform_buffers.count(p.first) > 0) {
-            auto im = image_uniform_buffers[p.first];
-            if (IsTextureReady(im.second)) {
-                glUniform1i(p.second.first, p.second.first);
-                glActiveTexture(GL_TEXTURE0 + p.second.first);
-                glBindTexture(GL_TEXTURE_2D, im.second.id);
-            }
+            auto& im = image_uniform_buffers[p.first];
+            // if (!IsTextureReady(im.second)) {
+            //     im.second = BlankTexture();
+            // }
+            glUniform1i(p.second.first, p.second.first);
+            glActiveTexture(GL_TEXTURE0 + p.second.first);
+            glBindTexture(GL_TEXTURE_2D, im.second.id);
         }
     }
 
@@ -392,6 +409,7 @@ bool PixelShader::Load(const char* filename) {
     std::map<std::string, Uniform> new_other_uniform_buffers;
     shader_locs.clear();
     size_t i = 0;
+    sampler_count = 0;
     while (i < len) {
         if (!memcmp(&fragment_code[i], "uniform ", strlen("uniform "))) {
             // TraceLog(LOG_INFO, "found uniform at offset %u", i);
@@ -404,8 +422,15 @@ bool PixelShader::Load(const char* filename) {
                     !(fragment_code[i+l]=='_' || isalnum(fragment_code[i+l]))) {
                         size_t j = i + l + 1;
                         char* eol = (char*)memchr(&fragment_code[j], '\n', len-j);
+                        if (eol == nullptr) eol = (char*)memchr(&fragment_code[j], 0x0D, len-j);
                         if (eol == nullptr) eol = &fragment_code[len];
-                        else if (eol[-1] != ';') continue;
+                        else {
+                            while (eol>fragment_code && strchr("\n\x0D", eol[-1])) {
+                                eol--;
+                            }
+                            if (eol <= fragment_code) continue;
+                        }
+                        if (eol[-1] != ';') continue;
                         char* eos = &fragment_code[j];
                         if (fragment_code[i+l] == '(') {
                             while (eos < eol && *eos != ')') eos++;
@@ -482,8 +507,7 @@ bool PixelShader::Load(const char* filename) {
                                     case SLIDER4:
                                         SetShaderValue(pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC4);
                                         break;
-                                    case SAMPLER2D:
-                                    case UNKNOWN:
+                                    default:
                                         break;
                                 }
                             } else {
@@ -505,14 +529,16 @@ bool PixelShader::Load(const char* filename) {
                                     case SLIDER4:
                                         glGetUniformfv(pixelShader.id, loc, (float*)&uni.v);
                                         break;
-                                    case SAMPLER2D:
-                                    case UNKNOWN:
+                                    default:
                                         break;
                                 }
                                 if (p.second < SAMPLER2D) {
                                     new_other_uniform_buffers.insert(std::make_pair(name, uni));
                                 }
                             }
+                            // if (p.second == SAMPLER2D) {
+                            //     SetShaderValueTexture(pixelShader, loc, BlankTexture());
+                            // }
                             if (p.second.isRange) {
                                 TraceLog(LOG_INFO, "found uniform %s %s (range %.3f to %.3f)", s.c_str(), name.c_str(), uni.min, uni.max);
                             } else {
@@ -528,7 +554,7 @@ bool PixelShader::Load(const char* filename) {
         }
     }
     editor.SetText(fragment_code);
-    if (IsFileExtension(filename, ".glsl") || IsFileExtension(filename, "fs") || IsFileExtension(filename, "vs")) {
+    if (IsFileExtension(filename, ".glsl") || IsFileExtension(filename, ".fs") || IsFileExtension(filename, ".vs")) {
         editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
     } else if (IsFileExtension(filename, ".hlsl")) {
         editor.SetLanguageDefinition(TextEditor::LanguageDefinition::HLSL());
@@ -536,6 +562,8 @@ bool PixelShader::Load(const char* filename) {
         editor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());
     } else if (IsFileExtension(filename, ".c") || IsFileExtension(filename, ".h")) {
         editor.SetLanguageDefinition(TextEditor::LanguageDefinition::C());
+    } else {
+        editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
     }
     // other_uniform_buffers.clear();
     other_uniform_buffers = new_other_uniform_buffers;
@@ -589,22 +617,21 @@ void PixelShader::SetRTWidth(int width) {
     selfTexture = LoadRenderTexture(rt_width, rt_width);
 }
 
-bool PixelShader::InputTextureFields(std::string str, int idx) {
+bool PixelShader::InputTextureFields(std::string str) {
     if (image_uniform_buffers.count(str) < 1) {
         image_uniform_buffers.insert(
             std::make_pair(str, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
     }
-    static char buf[IMAGE_NAME_BUFFER_LENGTH] = {0};
+    if (image_uniform_buffers.count(str) < 1 || image_uniform_buffers[str].first == nullptr) {
+        image_uniform_buffers[str].first = new char[IMAGE_NAME_BUFFER_LENGTH];
+    }
+    char* buf = image_uniform_buffers[str].first;
     auto& tex = image_uniform_buffers[str].second;
     ImGui::PushID(str.c_str());
     ImGui::InputTextWithHint(str.c_str(), "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
     static bool browse_returned = false;
     bool isSet = false;
     if (ImGui::Button("Browse")) {
-        if (image_uniform_buffers.count(str) >= 1 && image_uniform_buffers[str].first != nullptr) {
-            strncpy(buf, image_uniform_buffers[str].first, IMAGE_NAME_BUFFER_LENGTH-1);
-            buf[IMAGE_NAME_BUFFER_LENGTH-1] = 0;
-        }
         std::string id = std::string("BrowseForImageInput ")+std::string(str);
         fileDialogManager.openIfNotAlready(id, "Select an Image ("+std::string(str)+")",
             InputTextureFieldsLoadCB(buf, &browse_returned));
@@ -647,7 +674,7 @@ void PixelShader::DrawGUI() {
     ImGui::SameLine();
     if (ImGui::Button("Reset Time")) {
         frame_counter = 0;
-        runtime = clock() / CLOCKS_PER_SEC;
+        runtime = 0;
     }
     ImVec4 clearColorF = ImGui::ColorConvertU32ToFloat4(*(uint32_t*)&clearColor);
     if (ImGui::ColorEdit4("Clear Color", (float*)&clearColorF)) {
@@ -667,7 +694,7 @@ void PixelShader::DrawGUI() {
         if (ImGui::Checkbox("Save Gif", &saving_gif)) {
             if (saving_gif) {
                 // started recording
-                gifState = {};
+                gifState = {0};
                 msf_gif_begin(&gifState, rt_width, rt_width);
                 TraceLog(LOG_INFO, "Started recording gif...");
             } else {
@@ -793,7 +820,7 @@ void PixelShader::DrawGUI() {
                 if (p.first == "selfTexture") {
                     break;
                 }
-                InputTextureFields(p.first, p.second.first);
+                InputTextureFields(p.first);
                 break;
             default:
                 break;
@@ -811,29 +838,31 @@ void PixelShader::DrawTextEditor() {
     ImGui::SetWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
     if (ImGui::BeginMenuBar())
     {
+        bool shift_down = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+        bool control_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        bool save = focused && control_down && !shift_down && IsKeyPressed(KEY_S);
+        bool saveas = focused && control_down && shift_down && IsKeyPressed(KEY_S);
         if (ImGui::BeginMenu("File"))
         {
-            bool save = ImGui::MenuItem("Save", "Ctrl-S");
-            bool saveas = ImGui::MenuItem("Save As...", "Ctrl-Shift-S");
-            saveas |= focused && IsKeyPressed(KEY_S) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
+            save |= ImGui::MenuItem("Save", "Ctrl-S");
+            saveas |= ImGui::MenuItem("Save As...", "Ctrl-Shift-S");
             if (saveas) {
                 fileDialogManager.openIfNotAlready(("Save As (" + name + ")"), TextSaveAsCB(editor.GetText()), true);
-            } else {
-                requested_reload = ImGui::MenuItem("Save and reload shader", "Ctrl-R");
-                if (save || requested_reload)
-                {
-                    auto textToSave = editor.GetText();
-                    std::ofstream fd(filename);
-                    if (fd.is_open()) {
-                        fd.write(textToSave.c_str(), textToSave.length() - 1);
-                        fd.close();
-                    }
-                }
-                if (ImGui::MenuItem("Close")) {
-                    is_active = false;
-                }
+            }
+            if (ImGui::MenuItem("Close")) {
+                is_active = false;
             }
             ImGui::EndMenu();
+        }
+        if (save && !saveas)
+        {
+            auto textToSave = editor.GetText();
+            std::ofstream fd(filename);
+            if (fd.is_open()) {
+                fd.write(textToSave.c_str(), textToSave.length() - 1);
+                fd.close();
+            }
+            requested_reload = true;
         }
         if (ImGui::BeginMenu("Edit"))
         {
@@ -886,9 +915,6 @@ void PixelShader::DrawTextEditor() {
 
     editor.Render("TextEditor");
     ImGui::End();
-    if (focused && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_R)) {
-        requested_reload = true;
-    }
     if (requested_reload) {
         Reload();
         requested_reload = false;
@@ -1051,8 +1077,6 @@ nlohmann::json PixelShader::DumpUniforms() {
             Uniform uniform = other_uniform_buffers[key];
             if (uniform.isSet) {
                 switch (type) {
-                case UNKNOWN:
-                    break;
                 case INT:
                     j["v"] = uniform.i;
                     break;
@@ -1074,7 +1098,7 @@ nlohmann::json PixelShader::DumpUniforms() {
                 case SLIDER4:
                     j["v"] = nlohmann::json::array({uniform.v[0], uniform.v[1], uniform.v[2], uniform.v[3]});
                     break;
-                case SAMPLER2D:
+                default:
                     break;
                 }
             }

@@ -9,7 +9,7 @@
             "request": "launch",
             "name": "Debug",
             "program": "${workspaceFolder}/build/PixelShaderTestBench/PixelShaderTestBench",
-            "args": [],
+            "args": ["--debug"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build (Debug)"
         }

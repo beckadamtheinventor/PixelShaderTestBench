@@ -138,16 +138,25 @@ class NewPixelShaderCB : public FileDialogs::Callback {
 
 
 int main(int argc, char** argv) {
+    bool debug = false;
     char pixel_shader_file[IMAGE_NAME_BUFFER_LENGTH] = "shaders/noise.fs";
-    if (argc > 1) {
-        strcpy(pixel_shader_file, argv[1]);
-    }
-    if (argc > 2) {
-        default_rt_width = atoi(argv[2]);
+    for (int i=1; i<argc; i++) {
+        if (!strcmp(argv[i], "--debug")) {
+            debug = true;
+        } else if (!strcmp(argv[i], "-w") || !strcmp(argv[i], "--width")) {
+            if (i+1 < argc)
+                default_rt_width = atoi(argv[i+1]);
+        } else if (!strcmp(argv[i], "-f") || !strcmp(argv[i], "--file")) {
+            if (i+1 < argc)
+                strcpy(pixel_shader_file, argv[i+1]);
+        }
     }
 
     __log_fd.open("debug.log");
     SetTraceLogCallback(__TraceLogCallback);
+    if (debug) {
+        SetTraceLogLevel(LOG_TRACE);
+    }
 
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1000, 600, "PixelShaderTestBench");
