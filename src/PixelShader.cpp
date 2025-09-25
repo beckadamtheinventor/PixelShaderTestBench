@@ -1,7 +1,7 @@
 
 #include <cstring>
 #include <ctime>
-#include <functional>
+#include <map>
 #include <raylib.h>
 #include <fstream>
 #include <utility>
@@ -622,28 +622,25 @@ bool PixelShader::InputTextureFields(std::string str) {
         image_uniform_buffers.insert(
             std::make_pair(str, std::make_pair(new char[IMAGE_NAME_BUFFER_LENGTH] {0}, Texture2D {0})));
     }
-    if (image_uniform_buffers.count(str) < 1 || image_uniform_buffers[str].first == nullptr) {
-        image_uniform_buffers[str].first = new char[IMAGE_NAME_BUFFER_LENGTH];
-    }
     char* buf = image_uniform_buffers[str].first;
     auto& tex = image_uniform_buffers[str].second;
     ImGui::PushID(str.c_str());
     ImGui::InputTextWithHint(str.c_str(), "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
-    static bool browse_returned = false;
+    static std::map<std::string, bool> browse_returned;
+    if (browse_returned.count(str) < 1) {
+        browse_returned.insert(std::make_pair(str, false));
+    }
     bool isSet = false;
     if (ImGui::Button("Browse")) {
-        std::string id = std::string("BrowseForImageInput ")+std::string(str);
-        fileDialogManager.openIfNotAlready(id, "Select an Image ("+std::string(str)+")",
-            InputTextureFieldsLoadCB(buf, &browse_returned));
-    }
-    if (browse_returned) {
-        browse_returned = false;
-        SetUniform(str, SAMPLER2D, buf);
+        std::string id = std::string("BrowseForImageInput ")+str;
+        fileDialogManager.openIfNotAlready(id, "Select an Image ("+str+")",
+            InputTextureFieldsLoadCB(buf, &browse_returned[str]));
     }
 
     ImGui::SameLine();
     if (ImGui::Button("Reload Image")) {
         SetUniform(str, SAMPLER2D, buf);
+        isSet = true;
     }
     InputTextureOptions(tex);
     if (pixelShaderReference != nullptr) {
@@ -652,9 +649,17 @@ bool PixelShader::InputTextureFields(std::string str) {
             tex = pixelShaderReference->renderTexture.texture;
             snprintf(buf, IMAGE_NAME_BUFFER_LENGTH, "(Shader Output %u)", pixelShaderReference->num);
             pixelShaderReference = nullptr;
+            isSet = true;
         }
     }
     ImGui::PopID();
+
+    if (browse_returned[str]) {
+        browse_returned[str] = false;
+        SetUniform(str, SAMPLER2D, buf);
+        isSet = true;
+    }
+
     return isSet;
 }
 
@@ -738,9 +743,11 @@ void PixelShader::DrawGUI() {
 
     ImGui::Begin((name + " Uniforms").c_str(), &is_active);
     focused |= ImGui::IsWindowFocused();
+    int loc_count = 0;
     for (auto p : shader_locs) {
         auto v = p.second;
         Uniform* uniform = nullptr;
+        ImGui::PushID(loc_count++);
         if (v.second<SAMPLER2D) {
             if (other_uniform_buffers.count(p.first) >= 1) {
                 uniform = &other_uniform_buffers[p.first];
@@ -825,6 +832,7 @@ void PixelShader::DrawGUI() {
             default:
                 break;
         }
+        ImGui::PopID();
     }
     ImGui::End();
     DrawTextEditor();
