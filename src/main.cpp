@@ -4,7 +4,6 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <list>
 #include <vector>
 
 #include <raylib.h>
@@ -18,11 +17,12 @@
 #include "JsonConfig.hpp"
 #include "nlohmann/json.hpp"
 
+#define AUTO_SAVE_INTERVAL 60
 PixelShader* pixelShaderReference = nullptr;
 std::vector<PixelShader*> pixelShaders;
 FileDialogs::FileDialogManager fileDialogManager;
 int default_rt_width = 512;
-std::list<std::string> log_lines;
+std::vector<std::string> log_lines;
 std::ofstream __log_fd;
 
 void __TraceLogCallback(int level, const char* s, va_list args) {
@@ -178,6 +178,9 @@ int main(int argc, char** argv) {
     SetExitKey(-1);
     int render_texture_update_rate = 30;
     float render_texture_update_timer = 0;
+    bool autosave_workspace = true;
+    float auto_save_timer = 0;
+    float auto_save_interval = AUTO_SAVE_INTERVAL;
 
     rlImGuiSetup(true);
     ImGuiIO& io = ImGui::GetIO();
@@ -193,6 +196,14 @@ int main(int argc, char** argv) {
                 }
             }
         }
+    }
+
+    JsonConfig preferencesCfg("preferences.json");
+    if (preferencesCfg.contains("autosave")) {
+        autosave_workspace = preferencesCfg.get<bool>("autosave");
+    }
+    if (preferencesCfg.contains("autosave_interval")) {
+        auto_save_interval = preferencesCfg.get<bool>("autosave_interval");
     }
 
     JsonConfig workspaceCfg = LoadWorkspace();
@@ -245,6 +256,9 @@ int main(int argc, char** argv) {
         if (ImGui::Button("Save As...")) {
             fileDialogManager.openIfNotAlready("SaveWorkspaceAs", "Save Workspace As", WorkspaceSaveAsCB(workspaceCfg), true);
         }
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Autosave", &autosave_workspace)) {}
+        if (ImGui::InputFloat("Autosave Interval", &auto_save_interval)) {}
         ImGui::End();
 
         // display pixel shader windows, handle unloading/referencing/cloning
@@ -281,6 +295,14 @@ int main(int argc, char** argv) {
         dt = GetFrameTime();
         render_texture_update_timer += dt;
         frame_counter++;
+
+        if (autosave_workspace) {
+            auto_save_timer += dt;
+            if (auto_save_timer >= auto_save_interval) {
+                auto_save_timer -= auto_save_interval;
+                SaveWorkspace(workspaceCfg);
+            }
+        }
     }
 
     {
@@ -291,6 +313,12 @@ int main(int argc, char** argv) {
         }
         pinsCfg.set("pinned_folders", pin_strings);
         pinsCfg.save();
+    }
+
+    {
+        preferencesCfg.set("autosave", autosave_workspace);
+        preferencesCfg.set("autosave_interval", auto_save_interval);
+        preferencesCfg.save();
     }
 
     SaveWorkspace(workspaceCfg);
