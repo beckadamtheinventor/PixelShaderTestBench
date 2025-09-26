@@ -1,6 +1,7 @@
 
 #include <cstring>
 #include <ctime>
+#include <list>
 #include <map>
 #include <raylib.h>
 #include <fstream>
@@ -93,6 +94,7 @@ unsigned int numLoadedShadersEver = 0;
 
 std::vector<unsigned int> texturesNeedingCleanup;
 extern FileDialogs::FileDialogManager fileDialogManager;
+extern std::vector<PixelShader*> pixelShaders;
 
 #pragma endregion
 
@@ -165,6 +167,16 @@ Texture2D LoadTextureFromString(const char* str) {
     if (!str[0]) {
         return BlankTexture();
     }
+    if (str[0] == '(' && str[strlen(str)-1] == ')') {
+        int psid = -1;
+        sscanf(str, "(Shader Output %u)", &psid);
+        if (psid >= 0) {
+            if (psid < pixelShaders.size()) {
+                auto ps = pixelShaders[psid];
+                return ps->renderTexture.texture;
+            }
+        }
+    } 
     if (!memcmp(str, "rgb(", 4)) {
         sscanf(str, "rgb(%d,%d,%d)", &r, &g, &b);
         generate_image_texture = true;
@@ -300,7 +312,7 @@ void PixelShader::Update(float dt) {
         }
         Image img = LoadImageFromTexture(renderTexture.texture);
         if (saving_gif) {
-            msf_gif_frame(&gifState, (uint8_t*)img.data, dt*100.0f, 12, rt_width*4);
+            msf_gif_frame(&gifState, (uint8_t*)img.data, dt*100.0f, 16, rt_width*4);
         } else {
             if (IsFileExtension(filename.c_str(), ".jpg") || IsFileExtension(filename.c_str(), ".jpeg")) {
                 ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
@@ -586,10 +598,11 @@ bool PixelShader::New(const char* filename) {
 
 void PixelShader::Reload() {
     int w = rt_width;
+    int h = rt_height;
     nlohmann::json j = DumpUniforms();
     Unload();
     Load(filename);
-    Setup(w);
+    Setup(w, h);
     LoadUniforms(j);
 }
 
@@ -603,20 +616,27 @@ void PixelShader::Unload() {
     pixelShader = {0};
 }
 
-void PixelShader::Setup(int width) {
+void PixelShader::Setup(int width, int height) {
     // albedo_tex = BlankTexture();
     rt_width = width;
+    rt_height = height;
     renderTexture = LoadRenderTexture(rt_width, rt_width);
     selfTexture = LoadRenderTexture(rt_width, rt_width);
 }
 
-void PixelShader::SetRTWidth(int width) {
+void PixelShader::SetRTSize(int width, int height) {
     UnloadRenderTexture(renderTexture);
     UnloadRenderTexture(selfTexture);
-    rt_width = width;
-    renderTexture = LoadRenderTexture(rt_width, rt_width);
-    selfTexture = LoadRenderTexture(rt_width, rt_width);
+    Setup(width, height);
 }
+
+void PixelShader::SetClearColor(int r, int g, int b, int a) {
+    clearColor.r = r;
+    clearColor.g = g;
+    clearColor.b = b;
+    clearColor.a = a;
+}
+
 
 bool PixelShader::InputTextureFields(std::string str) {
     if (image_uniform_buffers.count(str) < 1) {
@@ -644,6 +664,9 @@ bool PixelShader::InputTextureFields(std::string str) {
         isSet = true;
     }
     InputTextureOptions(tex);
+    if (ImGui::Button("Set RT Size from Texture")) {
+        SetRTSize(rt_width=tex.width, rt_height=tex.height);
+    }
     if (pixelShaderReference != nullptr) {
         if (ImGui::Button("Paste Reference")) {
             CleanupTexture(tex);
@@ -690,47 +713,39 @@ void PixelShader::DrawGUI() {
     if (ImGui::InputTextWithHint("Image Output", "path to image to save", image_output, sizeof(image_output))) {
         saving_filename = std::string(image_output);
     }
-    if (image_output[0] != 0) {
-        if (ImGui::Button("Save Image") && !saving_sequence) {
-            saving_single = true;
-        }
-        ImGui::SameLine();
-        ImGui::Checkbox("Save Sequence", &saving_sequence);
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Save Gif", &saving_gif)) {
-            if (saving_gif) {
-                // started recording
-                gifState = {0};
-                msf_gif_begin(&gifState, rt_width, rt_width);
-                TraceLog(LOG_INFO, "Started recording gif...");
-            } else {
-                // finished recording
-                TraceLog(LOG_INFO, "Finishing recording gif...");
-                MsfGifResult result = msf_gif_end(&gifState);
-                if (result.data != nullptr) {
-                    std::ofstream fd(saving_filename, std::ios::out | std::ios::binary);
-                    if (fd.is_open()) {
-                        fd.write((char*)result.data, result.dataSize);
-                        fd.close();
-                        TraceLog(LOG_INFO, "Gif created successfuly! Size: %u Kb", result.dataSize/1024);
-                    } else {
-                        TraceLog(LOG_ERROR, "Failed to create gif file!");
-                    }
+    if (ImGui::Button("Save Image") && !saving_sequence) {
+        saving_single = true;
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Save Sequence", &saving_sequence);
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Save Gif", &saving_gif)) {
+        if (saving_gif) {
+            // started recording
+            gifState = {0};
+            msf_gif_begin(&gifState, rt_width, rt_width);
+            TraceLog(LOG_INFO, "Started recording gif...");
+        } else {
+            // finished recording
+            TraceLog(LOG_INFO, "Finishing recording gif...");
+            MsfGifResult result = msf_gif_end(&gifState);
+            if (result.data != nullptr) {
+                std::ofstream fd(saving_filename, std::ios::out | std::ios::binary);
+                if (fd.is_open()) {
+                    fd.write((char*)result.data, result.dataSize);
+                    fd.close();
+                    TraceLog(LOG_INFO, "Gif created successfuly! Size: %u Kb", result.dataSize/1024);
                 } else {
-                    TraceLog(LOG_ERROR, "Failed to finalize gif!");
+                    TraceLog(LOG_ERROR, "Failed to create gif file!");
                 }
+            } else {
+                TraceLog(LOG_ERROR, "Failed to finalize gif!");
             }
         }
     }
-    if (ImGui::InputInt("Render Texture Size", &rt_width)) {
-        if (IsRenderTextureReady(renderTexture)) {
-            UnloadRenderTexture(renderTexture);
-        }
-        if (IsRenderTextureReady(selfTexture)) {
-            UnloadRenderTexture(selfTexture);
-        }
-        renderTexture = LoadRenderTexture(rt_width, rt_width);
-        selfTexture = LoadRenderTexture(rt_width, rt_width);
+    int size[2] = {rt_width, rt_height};
+    if (ImGui::InputInt2("Render Texture Size", size)) {
+        SetRTSize(rt_width=size[0], rt_height=size[1]);
     }
     InputTextureOptions(renderTexture.texture);
     if (ImGui::Button("Clone Shader")) {

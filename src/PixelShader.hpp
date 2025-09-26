@@ -70,7 +70,7 @@ class PixelShader {
     Shader pixelShader = {0};
     std::string saving_filename;
     MsfGifState gifState;
-    int rt_width;
+    int rt_width, rt_height;
     int num;
     unsigned int sampler_count = 0;
     unsigned int frame_counter = 0;
@@ -98,7 +98,7 @@ class PixelShader {
         other_uniform_buffers.clear();
     }
     PixelShader(PixelShader* other) : PixelShader(other->filename) {
-        Setup(other->rt_width);
+        Setup(other->rt_width, other->rt_height);
         memcpy(image_output, other->image_output, sizeof(image_output));
         memcpy(image_input, other->image_input, sizeof(image_output));
     }
@@ -115,8 +115,9 @@ class PixelShader {
     bool New(const char* filename);
     void Unload();
     void Reload();
-    void Setup(int width);
-    void SetRTWidth(int width);
+    void Setup(int width, int height);
+    void SetRTSize(int width, int height);
+    void SetClearColor(int r, int g, int b, int a);
     bool InputTextureFields(std::string str);
     void DrawGUI();
     void DrawTextEditor();

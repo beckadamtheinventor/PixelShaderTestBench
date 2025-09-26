@@ -4,7 +4,6 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <list>
 #include <vector>
 
@@ -20,7 +19,7 @@
 #include "nlohmann/json.hpp"
 
 PixelShader* pixelShaderReference = nullptr;
-std::list<PixelShader*> pixelShaders;
+std::vector<PixelShader*> pixelShaders;
 FileDialogs::FileDialogManager fileDialogManager;
 int default_rt_width = 512;
 std::list<std::string> log_lines;
@@ -53,7 +52,7 @@ void __TraceLogCallback(int level, const char* s, va_list args) {
 bool LoadPixelShader(std::string file) {
     if (!file.size()) return false;
     PixelShader* ps = new PixelShader(file.c_str());
-    ps->Setup(default_rt_width);
+    ps->Setup(default_rt_width, default_rt_width);
     if (ps->IsReady()) {
         pixelShaders.push_back(ps);
         return true;
@@ -65,7 +64,7 @@ bool NewPixelShader(std::string file) {
     if (!file.size()) return false;
     PixelShader* ps = new PixelShader();
     if (ps->New(file.c_str())) {
-        ps->Setup(default_rt_width);
+        ps->Setup(default_rt_width, default_rt_width);
         if (ps->IsReady()) {
             pixelShaders.push_back(ps);
             return true;
@@ -84,10 +83,23 @@ JsonConfig LoadWorkspace(std::string fname="workspace.json") {
                 nlohmann::json j = s.value();
                 if (!j.is_object()) continue;
                 if (LoadPixelShader(fname)) {
+                    if (j.contains("clear_color") && j["clear_color"].is_array()) {
+                        auto arr = j["clear_color"];
+                        int clearColorI[4] = {0};
+                        for (int i=0; i<arr.size(); i++) {
+                            if (arr[i].is_number_integer()) {
+                                clearColorI[i] = arr[i].get<int>();
+                            }
+                        }
+                    }
                     if (j.contains("uniforms") && j["uniforms"].is_object()) {
                         PixelShader* ps = pixelShaders.back();
                         if (j.contains("width") && j["width"].is_number()) {
-                            ps->SetRTWidth(j["width"].get<int>());
+                            if (j.contains("height") && j["height"].is_number()) {
+                                ps->SetRTSize(j["width"].get<int>(), j["height"].get<int>());
+                            } else {
+                                ps->SetRTSize(j["width"].get<int>(), j["width"].get<int>());
+                            }
                         }
                         ps->LoadUniforms(j["uniforms"]);
                     }
@@ -106,6 +118,7 @@ void SaveWorkspace(JsonConfig& cfg) {
         json[std::string(ps->filename)] = {
             {"uniforms", j},
             {"width", ps->rt_width},
+            {"clear_color", nlohmann::json::array({ps->clearColor.r, ps->clearColor.g, ps->clearColor.b, ps->clearColor.a})},
         };
     }
     cfg["shaders"] = json;
@@ -194,7 +207,7 @@ int main(int argc, char** argv) {
             render_texture_update_timer -= 1.0 / render_texture_update_rate;
             for (auto& ps : pixelShaders) {
                 if (ps != nullptr && ps->IsReady()) {
-                    ps->Update(dt * render_texture_update_rate / (float)target_fps);
+                    ps->Update(dt * target_fps / (float)render_texture_update_rate);
                 }
             }
         }
