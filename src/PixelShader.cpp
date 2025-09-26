@@ -578,6 +578,7 @@ bool PixelShader::New(const char* filename) {
     fd.write(fragment_shader_code_default, strlen(fragment_shader_code_default));
     fd.close();
     bool success = Load(strdup(filename));
+    shader_locs.clear();
     name = "Shader " + std::to_string(numLoadedShadersEver);
     num = numLoadedShadersEver++;
     return success;

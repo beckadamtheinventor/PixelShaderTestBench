@@ -64,7 +64,7 @@ class PixelShader {
     std::map<std::string, std::pair<int, ShaderUniformType>> shader_locs;
     std::map<std::string, std::pair<char*, Texture2D>> image_uniform_buffers;
     std::map<std::string, Uniform> other_uniform_buffers;
-    RenderTexture2D renderTexture, selfTexture;
+    RenderTexture2D renderTexture={0}, selfTexture={0};
     Color clearColor = {0, 0, 0, 0};
     // Texture2D albedo_tex;
     Shader pixelShader = {0};
@@ -93,6 +93,9 @@ class PixelShader {
         saving_sequence = false;
         saving_single = false;
         saving_gif = false;
+        shader_locs.clear();
+        image_uniform_buffers.clear();
+        other_uniform_buffers.clear();
     }
     PixelShader(PixelShader* other) : PixelShader(other->filename) {
         Setup(other->rt_width);

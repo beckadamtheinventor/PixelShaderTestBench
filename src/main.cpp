@@ -64,11 +64,12 @@ bool LoadPixelShader(std::string file) {
 bool NewPixelShader(std::string file) {
     if (!file.size()) return false;
     PixelShader* ps = new PixelShader();
-    ps->New(file.c_str());
-    ps->Setup(default_rt_width);
-    if (ps->IsReady()) {
-        pixelShaders.push_back(ps);
-        return true;
+    if (ps->New(file.c_str())) {
+        ps->Setup(default_rt_width);
+        if (ps->IsReady()) {
+            pixelShaders.push_back(ps);
+            return true;
+        }
     }
     return false;
 }
