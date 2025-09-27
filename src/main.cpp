@@ -4,6 +4,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 #include <vector>
 
 #include <raylib.h>
@@ -19,7 +20,7 @@
 
 #define AUTO_SAVE_INTERVAL 60
 PixelShader* pixelShaderReference = nullptr;
-std::vector<PixelShader*> pixelShaders;
+std::map<int, PixelShader*> pixelShaders;
 FileDialogs::FileDialogManager fileDialogManager;
 int default_rt_width = 512;
 std::vector<std::string> log_lines;
@@ -49,15 +50,15 @@ void __TraceLogCallback(int level, const char* s, va_list args) {
     __log_fd.write(str.c_str(), str.length());
 }
 
-bool LoadPixelShader(std::string file) {
+int LoadPixelShader(std::string file) {
     if (!file.size()) return false;
     PixelShader* ps = new PixelShader(file.c_str());
     ps->Setup(default_rt_width, default_rt_width);
     if (ps->IsReady()) {
-        pixelShaders.push_back(ps);
-        return true;
+        pixelShaders.insert(std::make_pair(ps->num, ps));
+        return ps->num;
     }
-    return false;
+    return -1;
 }
 
 bool NewPixelShader(std::string file) {
@@ -66,7 +67,7 @@ bool NewPixelShader(std::string file) {
     if (ps->New(file.c_str())) {
         ps->Setup(default_rt_width, default_rt_width);
         if (ps->IsReady()) {
-            pixelShaders.push_back(ps);
+            pixelShaders.insert(std::make_pair(ps->num, ps));
             return true;
         }
     }
@@ -82,7 +83,8 @@ JsonConfig LoadWorkspace(std::string fname="workspace.json") {
                 std::string fname = s.key();
                 nlohmann::json j = s.value();
                 if (!j.is_object()) continue;
-                if (LoadPixelShader(fname)) {
+                int id = LoadPixelShader(fname);
+                if (id != -1) {
                     if (j.contains("clear_color") && j["clear_color"].is_array()) {
                         auto arr = j["clear_color"];
                         int clearColorI[4] = {0};
@@ -93,7 +95,7 @@ JsonConfig LoadWorkspace(std::string fname="workspace.json") {
                         }
                     }
                     if (j.contains("uniforms") && j["uniforms"].is_object()) {
-                        PixelShader* ps = pixelShaders.back();
+                        PixelShader* ps = pixelShaders[id];
                         if (j.contains("width") && j["width"].is_number()) {
                             if (j.contains("height") && j["height"].is_number()) {
                                 ps->SetRTSize(j["width"].get<int>(), j["height"].get<int>());
@@ -112,12 +114,14 @@ JsonConfig LoadWorkspace(std::string fname="workspace.json") {
 
 void SaveWorkspace(JsonConfig& cfg) {
     nlohmann::json json;
-    for (auto ps : pixelShaders) {
+    for (auto p : pixelShaders) {
+        auto ps = p.second;
         if (ps == nullptr) continue;
         nlohmann::json j = ps->DumpUniforms();
         json[std::string(ps->filename)] = {
             {"uniforms", j},
             {"width", ps->rt_width},
+            {"height", ps->rt_height},
             {"clear_color", nlohmann::json::array({ps->clearColor.r, ps->clearColor.g, ps->clearColor.b, ps->clearColor.a})},
         };
     }
@@ -203,7 +207,7 @@ int main(int argc, char** argv) {
         autosave_workspace = preferencesCfg.get<bool>("autosave");
     }
     if (preferencesCfg.contains("autosave_interval")) {
-        auto_save_interval = preferencesCfg.get<bool>("autosave_interval");
+        auto_save_interval = preferencesCfg.get<float>("autosave_interval");
     }
 
     JsonConfig workspaceCfg = LoadWorkspace();
@@ -216,7 +220,8 @@ int main(int argc, char** argv) {
         BeginDrawing();
         if (render_texture_update_timer >= 1.0 / render_texture_update_rate) {
             render_texture_update_timer -= 1.0 / render_texture_update_rate;
-            for (auto& ps : pixelShaders) {
+            for (auto p : pixelShaders) {
+                auto ps = p.second;
                 if (ps != nullptr && ps->IsReady()) {
                     ps->Update(dt * target_fps / (float)render_texture_update_rate);
                 }
@@ -262,7 +267,8 @@ int main(int argc, char** argv) {
         ImGui::End();
 
         // display pixel shader windows, handle unloading/referencing/cloning
-        for (auto& ps : pixelShaders) {
+        for (auto& p : pixelShaders) {
+            auto& ps = p.second;
             if (ps != nullptr) {
                 ps->DrawGUI();
                 if (!ps->is_active) { // if the window was closed
@@ -270,7 +276,8 @@ int main(int argc, char** argv) {
                     ps = nullptr;
                 } else if (ps->requested_clone) { // if the clone button was pressed
                     ps->requested_clone = false;
-                    pixelShaders.push_back(new PixelShader(ps));
+                    auto ps2 = new PixelShader(ps);
+                    pixelShaders.insert(std::make_pair(ps2->num, ps2));
                 } else if (ps->requested_reference) { // if the copy reference button was pressed
                     ps->requested_reference = false;
                     pixelShaderReference = ps;

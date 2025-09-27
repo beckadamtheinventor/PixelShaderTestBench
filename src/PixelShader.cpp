@@ -18,6 +18,8 @@
 #include "ImGuiColorTextEdit/TextEditor.h"
 #include "rlgl.h"
 
+#define VIEW_WINDOW_SIZE 512
+
 #pragma region Constants
 
 const char* vertex_shader_code =
@@ -376,7 +378,7 @@ void PixelShader::Update(float dt) {
 
     // BeginShaderMode(pixelShader);
 
-    glViewport(0, 0, rt_width, rt_width);
+    glViewport(0, 0, rt_width, rt_height);
     DrawRenderTextureQuad();
     // EndShaderMode();
     EndTextureMode();
@@ -620,8 +622,8 @@ void PixelShader::Setup(int width, int height) {
     // albedo_tex = BlankTexture();
     rt_width = width;
     rt_height = height;
-    renderTexture = LoadRenderTexture(rt_width, rt_width);
-    selfTexture = LoadRenderTexture(rt_width, rt_width);
+    renderTexture = LoadRenderTexture(rt_width, rt_height);
+    selfTexture = LoadRenderTexture(rt_width, rt_height);
 }
 
 void PixelShader::SetRTSize(int width, int height) {
@@ -691,7 +693,20 @@ void PixelShader::DrawGUI() {
     focused = false;
     ImGui::Begin((name + " Output").c_str(), &is_active);
     focused |= ImGui::IsWindowFocused();
-    rlImGuiImageSize(&renderTexture.texture, 512, 512);
+    int w = rt_width, h = rt_height;
+    if (h < w) {
+        if (w > VIEW_WINDOW_SIZE) {
+            h = ((float)VIEW_WINDOW_SIZE*h)/w;
+            w = VIEW_WINDOW_SIZE;
+        }
+    } else {
+        if (h > VIEW_WINDOW_SIZE) {
+            w = ((float)VIEW_WINDOW_SIZE*w)/h;
+            h = VIEW_WINDOW_SIZE;
+        }
+    }
+
+    rlImGuiImageSize(&renderTexture.texture, w, h);
     ImGui::End();
 
     ImGui::Begin((name + " Options").c_str(), &is_active);
@@ -723,7 +738,7 @@ void PixelShader::DrawGUI() {
         if (saving_gif) {
             // started recording
             gifState = {0};
-            msf_gif_begin(&gifState, rt_width, rt_width);
+            msf_gif_begin(&gifState, rt_width, rt_height);
             TraceLog(LOG_INFO, "Started recording gif...");
         } else {
             // finished recording
@@ -1068,6 +1083,7 @@ void PixelShader::LoadUniforms(nlohmann::json json) {
                         std::string tex = j["v"].get<std::string>();
                         SetUniform(p.key(), SAMPLER2D, (void*)tex.c_str());
                     }
+                    break;
                 default:
                     break;
             }
