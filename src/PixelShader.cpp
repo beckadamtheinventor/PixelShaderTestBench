@@ -96,7 +96,7 @@ unsigned int numLoadedShadersEver = 0;
 
 std::vector<unsigned int> texturesNeedingCleanup;
 extern FileDialogs::FileDialogManager fileDialogManager;
-extern std::vector<PixelShader*> pixelShaders;
+extern std::map<int, PixelShader*> pixelShaders;
 
 #pragma endregion
 
@@ -173,7 +173,7 @@ Texture2D LoadTextureFromString(const char* str) {
         int psid = -1;
         sscanf(str, "(Shader Output %u)", &psid);
         if (psid >= 0) {
-            if (psid < pixelShaders.size()) {
+            if (pixelShaders.count(psid) >= 1) {
                 auto ps = pixelShaders[psid];
                 return ps->renderTexture.texture;
             }
