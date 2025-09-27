@@ -4,7 +4,6 @@ in vec2 fragTexCoord;
 uniform sampler2D texture0;
 
 uniform int enable_rotate = 0;
-uniform int enable_cartToPolar = 0;
 uniform int enable_polarToCart = 0;
 uniform int enable_vertical_flip = 1;
 uniform int enable_horizontal_flip = 0;
@@ -39,12 +38,10 @@ void main() {
 	if (enable_vertical_flip > 0) {
 		coord.y = 1.0f - coord.y;
 	}
-	
-	if (enable_cartToPolar >= 1) {
-		coord = cart2polar(coord);
-	}
 	if (enable_polarToCart > 0) {
 		coord = polar2cart(coord);
+	} else {
+		coord = cart2polar(coord);
 	}
 	vec4 texelColor = texture2D(texture0, coord);
 	gl_FragColor = texelColor;

@@ -265,8 +265,17 @@ PixelShader::PixelShader(const char* fname) : PixelShader() {
     filename = strdup(fname);
     if (filename != nullptr) {
         Load(filename);
-        name = "Shader " + std::to_string(numLoadedShadersEver);
         num = numLoadedShadersEver++;
+        name = "Shader " + std::to_string(num);
+    }
+}
+
+PixelShader::PixelShader(const char* fname, int id) : PixelShader() {
+    filename = strdup(fname);
+    if (filename != nullptr) {
+        Load(filename);
+        num = id;
+        name = "Shader " + std::to_string(num);
     }
 }
 
@@ -667,7 +676,9 @@ bool PixelShader::InputTextureFields(std::string str) {
     }
     InputTextureOptions(tex);
     if (ImGui::Button("Set RT Size from Texture")) {
-        SetRTSize(rt_width=tex.width, rt_height=tex.height);
+        if (tex.width > 0 && tex.height > 0) {
+            SetRTSize(rt_width=tex.width, rt_height=tex.height);
+        }
     }
     if (pixelShaderReference != nullptr) {
         if (ImGui::Button("Paste Reference")) {

@@ -50,9 +50,14 @@ void __TraceLogCallback(int level, const char* s, va_list args) {
     __log_fd.write(str.c_str(), str.length());
 }
 
-int LoadPixelShader(std::string file) {
+int LoadPixelShader(std::string file, int id=-1) {
     if (!file.size()) return false;
-    PixelShader* ps = new PixelShader(file.c_str());
+    PixelShader* ps;
+    if (id == -1) {
+        ps = new PixelShader(file.c_str());
+    } else {
+        ps = new PixelShader(file.c_str(), id);
+    }
     ps->Setup(default_rt_width, default_rt_width);
     if (ps->IsReady()) {
         pixelShaders.insert(std::make_pair(ps->num, ps));
@@ -122,6 +127,7 @@ void SaveWorkspace(JsonConfig& cfg) {
             {"uniforms", j},
             {"width", ps->rt_width},
             {"height", ps->rt_height},
+            {"id", ps->num},
             {"clear_color", nlohmann::json::array({ps->clearColor.r, ps->clearColor.g, ps->clearColor.b, ps->clearColor.a})},
         };
     }

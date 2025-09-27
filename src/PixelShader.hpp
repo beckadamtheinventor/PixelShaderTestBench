@@ -104,6 +104,7 @@ class PixelShader {
     }
     PixelShader(PixelShader& other) : PixelShader(&other) {}
     PixelShader(const char* fname);
+    PixelShader(const char* fname, int id);
     bool operator==(PixelShader ps) {
         return ps.num == num;
     }
