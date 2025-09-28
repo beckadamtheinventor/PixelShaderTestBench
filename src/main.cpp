@@ -195,6 +195,7 @@ int main(int argc, char** argv) {
     rlImGuiSetup(true);
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
     JsonConfig pinsCfg("pins.json");
     if (pinsCfg.contains("pinned_folders")) {
@@ -276,7 +277,7 @@ int main(int argc, char** argv) {
         for (auto& p : pixelShaders) {
             auto& ps = p.second;
             if (ps != nullptr) {
-                ps->DrawGUI();
+                ps->DrawGUI(dt);
                 if (!ps->is_active) { // if the window was closed
                     ps->Unload();
                     ps = nullptr;

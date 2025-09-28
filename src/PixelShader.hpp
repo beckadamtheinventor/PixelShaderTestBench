@@ -12,7 +12,13 @@
 #include <rlgl.h>
 #include <external/glad.h>
 
-extern const char* vertex_shader_code;
+extern const char* vertex_shader_code_default;
+
+typedef enum {
+    NONE = 0,
+    TEXTURE,
+    MODEL,
+} ShaderDrawType;
 
 typedef enum {
     UNKNOWN = 0,
@@ -27,6 +33,7 @@ typedef enum {
     SLIDER2,
     SLIDER3,
     SLIDER4,
+    MATRIX,
     SAMPLER2D,
 } ShaderUniformType;
 class ShaderUniformData {
@@ -39,7 +46,7 @@ class ShaderUniformData {
         return type;
     }
 };
-extern const std::map<std::string, ShaderUniformData> shader_uniform_type_strings;
+extern const std::vector<std::pair<std::string, ShaderUniformData>> shader_uniform_type_strings;
 
 typedef struct {
     union {
@@ -55,7 +62,7 @@ typedef struct {
 
 #define IMAGE_NAME_BUFFER_LENGTH 512
 
-void DrawRenderTextureQuad();
+void DrawEmptyTriangleStrip();
 Texture2D LoadTextureFromString(const char* str);
 void InputTextureOptions(Texture2D& tex);
 
@@ -72,19 +79,31 @@ class PixelShader {
     MsfGifState gifState;
     int rt_width, rt_height;
     int num;
+    ShaderDrawType drawType;
     unsigned int sampler_count = 0;
     unsigned int frame_counter = 0;
-    float runtime = 0;
+    float runtime = 0, fovx = 90;
     bool is_active, saving_sequence, saving_single, saving_gif;
     bool requested_clone : 1;
     bool requested_reference : 1;
     bool requested_reload : 1;
     bool focused : 1;
+    bool controlling_camera : 1;
     std::string name;
     const char* filename;
     char image_input[IMAGE_NAME_BUFFER_LENGTH] = {0};
     char image_output[IMAGE_NAME_BUFFER_LENGTH] = {0};
     TextEditor editor;
+    Rectangle outputArea;
+    Model model = {0};
+    char* modelFilebuf = nullptr;
+    Camera3D camera = {
+        .position = {-10, 0, 0},
+        .target = {-8, 0, 0},
+        .up = {0, 1, 0},
+        .fovy = 90.0,
+        .projection = CAMERA_PERSPECTIVE
+    };
 
     PixelShader() {
         is_active = true;
@@ -120,7 +139,8 @@ class PixelShader {
     void SetRTSize(int width, int height);
     void SetClearColor(int r, int g, int b, int a);
     bool InputTextureFields(std::string str);
-    void DrawGUI();
+    void UpdateCamera(float dt);
+    void DrawGUI(float dt);
     void DrawTextEditor();
     void SetUniform(std::string name, ShaderUniformType type, void* value);
     void LoadUniforms(nlohmann::json json);

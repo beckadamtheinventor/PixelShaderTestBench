@@ -1,13 +1,14 @@
 
+#include <cmath>
 #include <cstring>
 #include <ctime>
-#include <list>
 #include <map>
-#include <raylib.h>
 #include <fstream>
 #include <utility>
 #include <vector>
 
+#include <raylib.h>
+#include <rcamera.h>
 #include <imgui.h>
 #include <rlImGui.h>
 
@@ -16,13 +17,14 @@
 #include "external/msf_gif.h"
 #include "nlohmann/json.hpp"
 #include "ImGuiColorTextEdit/TextEditor.h"
+#include "raymath.h"
 #include "rlgl.h"
 
 #define VIEW_WINDOW_SIZE 512
 
 #pragma region Constants
 
-const char* vertex_shader_code =
+const char* vertex_shader_code_default =
 "#version 330 core\n"
 "//Special thanks to https://roxlu.com/2014/041/attributeless-vertex-shader-with-opengl\n"
 "out vec2 fragTexCoord;\n"
@@ -44,6 +46,27 @@ const char* vertex_shader_code =
 "  fragTexCoord = tex[gl_VertexID];"
 "}\n";
 
+const char* vertex_shader_code_model = 
+"#version 330\n"
+"in vec3 vertexPosition;\n"
+"in vec2 vertexTexCoord;\n"
+"in vec4 vertexColor;\n"
+"in vec3 vertexNormal;\n"
+"out vec2 fragTexCoord;\n"
+"out vec4 fragColor;\n"
+"out vec3 fragPosition;\n"
+"out vec3 fragNormal;\n"
+"uniform mat4 mvp;\n"
+"uniform mat4 matNormal;\n"
+"void main()\n"
+"{\n"
+"\tfragTexCoord = vertexTexCoord;\n"
+"\tfragPosition = vertexPosition;\n"
+"\tfragColor = vertexColor;\n"
+"\tfragNormal = normalize(vec3(matNormal * vec4(vertexNormal, 0.0)));\n"
+"\tgl_Position = mvp*vec4(vertexPosition, 1.0);\n"
+"}\n";
+
 const char* fragment_shader_code_default =
 "#version 330 core\n"
 "// these are here so the gui shows a color picker, sliders etc\n"
@@ -55,6 +78,8 @@ const char* fragment_shader_code_default =
 "#define slider4(a,b) vec4\n"
 "\n"
 "in vec2 fragTexCoord;\n"
+"in vec4 fragColor;\n"
+"in vec3 fragPosition;\n"
 "uniform sampler2D texture0;\n"
 "\n"
 "// Compatibility for shadertoy shaders\n"
@@ -68,24 +93,25 @@ const char* fragment_shader_code_default =
 "}\n"
 "void main() {\n"
 "\tmainImage(gl_FragColor, fragTexCoord);\n"
-"}\n"
-;
+"}\n";
 
 
-
-const std::map<std::string, ShaderUniformData> shader_uniform_type_strings = {
-    {"float", FLOAT},
-    {"int", INT},
-    {"vec2", VEC2},
-    {"vec3", VEC3},
-    {"vec4", VEC4},
-    {"color3", COLOR3},
-    {"color4", COLOR4},
-    {"slider", {SLIDER, true}},
-    {"slider2", {SLIDER2, true}},
-    {"slider3", {SLIDER3, true}},
-    {"slider4", {SLIDER4, true}},
-    {"sampler2D", SAMPLER2D},
+const std::vector<std::pair<std::string, ShaderUniformData>> shader_uniform_type_strings = {
+    std::make_pair("float", FLOAT),
+    std::make_pair("int", INT),
+    std::make_pair("vec2", VEC2),
+    std::make_pair("vec3", VEC3),
+    std::make_pair("vec4", VEC4),
+    std::make_pair("color3", COLOR3),
+    std::make_pair("color4", COLOR4),
+    std::make_pair("slider2", ShaderUniformData{SLIDER2, true}),
+    std::make_pair("slider3", ShaderUniformData{SLIDER3, true}),
+    std::make_pair("slider4", ShaderUniformData{SLIDER4, true}),
+    std::make_pair("slider", ShaderUniformData{SLIDER, true}),
+    std::make_pair("sampler2D", SAMPLER2D),
+    std::make_pair("mat2", MATRIX),
+    std::make_pair("mat3", MATRIX),
+    std::make_pair("mat4", MATRIX),
 };
 
 #pragma endregion
@@ -109,7 +135,7 @@ void CheckOpenGLError(const char* str) {
     }
 }
 
-void DrawRenderTextureQuad() {
+void DrawEmptyTriangleStrip() {
     static unsigned int quadVAO = 0;
     if (quadVAO == 0) {
         glGenVertexArrays(1, &quadVAO);
@@ -335,8 +361,8 @@ void PixelShader::Update(float dt) {
         }
     }
 
-    // BeginTextureMode(renderTexture);
-    rlEnableFramebuffer(renderTexture.id);
+    BeginTextureMode(renderTexture);
+    // rlEnableFramebuffer(renderTexture.id);
     ClearBackground(clearColor);
 
     if (other_uniform_buffers.count("time") >= 1) {
@@ -385,10 +411,49 @@ void PixelShader::Update(float dt) {
 
     // DrawRectangle(0, 0, renderTexture.texture.width, renderTexture.texture.height, WHITE);
 
-    // BeginShaderMode(pixelShader);
-
-    glViewport(0, 0, rt_width, rt_height);
-    DrawRenderTextureQuad();
+    // BeginShaderMode(pixelShader); 
+    
+    rlViewport(0, 0, rt_width, rt_height);
+    switch (drawType) {
+        case MODEL:
+            if (IsModelReady(model) && model.meshCount > 0) {
+                BeginMode3D(camera);
+                glUseProgram(pixelShader.id);
+                Matrix matView = rlGetMatrixModelview();
+                Matrix matProjection = rlGetMatrixProjection();
+                Matrix matModelView = matView;
+                Matrix matNormal = MatrixTranspose(MatrixInvert(matModelView));
+                Matrix matModelViewProjection = MatrixMultiply(matModelView, matProjection);
+                for (auto p : shader_locs) {
+                    if (p.second.second == MATRIX) {
+                        if (p.first == "mvp") {
+                            // Send combined model-view-projection matrix to shader
+                            rlSetUniformMatrix(p.second.first, matModelViewProjection);
+                        } else if (p.first == "matView") {
+                            rlSetUniformMatrix(p.second.first, matView);
+                        } else if (p.first == "matProjection") {
+                            rlSetUniformMatrix(p.second.first, matProjection);
+                        } else if (p.first == "matNormal") {
+                            rlSetUniformMatrix(p.second.first, matNormal);
+                        }
+                    }
+                }
+                for (int i = 0; i < model.meshCount; i++) {
+                    Mesh& mesh = model.meshes[i];
+                    rlEnableVertexArray(mesh.vaoId);
+                    // Draw mesh
+                    if (mesh.indices != NULL) rlDrawVertexArrayElements(0, mesh.triangleCount*3, 0);
+                    else rlDrawVertexArray(0, mesh.vertexCount);
+                }
+                EndMode3D();
+            }
+            break;
+        case TEXTURE:
+            DrawEmptyTriangleStrip();
+            break;
+        default:
+            break;
+    }
     // EndShaderMode();
     EndTextureMode();
     // BeginTextureMode(selfTexture);
@@ -402,11 +467,166 @@ void PixelShader::Update(float dt) {
     runtime += dt;
 }
 
+void LoadUniformsFromCode(const char* code, int len,
+                            std::map<std::string, Uniform>& other_uniform_buffers,
+                            std::map<std::string, Uniform>& new_other_uniform_buffers,
+                            PixelShader* ps, bool set_buffers=true) {
+    auto& shader_locs = ps->shader_locs;
+    auto& sampler_count = ps->sampler_count;
+    int i = 0;
+    sampler_count = 0;
+    while (i < len) {
+        if (!memcmp(&code[i], "uniform ", strlen("uniform "))) {
+            // TraceLog(LOG_INFO, "found uniform at offset %u", i);
+            i += strlen("uniform ");
+            while (isspace(code[i]) && i < len) i++;
+            for (auto p : shader_uniform_type_strings) {
+                std::string s = p.first;
+                size_t l = s.length();
+                if (!memcmp(&code[i], s.c_str(), s.length())) {
+                    size_t j = i + l;
+                    while (isspace(code[j]) && j < len) j++;
+                    const char* eol = (char*)memchr(&code[j], '\n', len-j);
+                    if (eol == nullptr) eol = (char*)memchr(&code[j], 0x0D, len-j);
+                    if (eol == nullptr) eol = &code[len];
+                    else {
+                        while (eol-1>code && strchr("\n\x0D", eol[-1])) {
+                            eol--;
+                        }
+                        // if (eol-1 <= code) continue;
+                    }
+                    // if (eol[-1] != ';') continue;
+                    const char* eos = &code[j];
+                    while (isspace(*eos) && eos < eol) eos++;
+                    if (code[i+l] == '(') {
+                        while (eos < eol && *eos != ')') eos++;
+                        while (eos < eol && !(isalnum(*eos) || *eos == '_')) eos++;
+                        j = eos - code;
+                    }
+                    while (isspace(*eos) && eos < eol) eos++;
+                    while (eos < eol && (isalnum(*eos) || *eos == '_')) eos++;
+                    std::string name = std::string(&code[j], eos - &code[j]);
+                    int loc = -1;
+                    if (p.second == SAMPLER2D) {
+                        // location for samplers is different
+                        loc = sampler_count++;
+                    } else {
+                        loc = rlGetLocationUniform(ps->pixelShader.id, name.c_str());
+                    }
+                    // if (name == "texture0") {
+                    //     continue;
+                    // }
+                    shader_locs.insert(std::make_pair(name, std::make_pair(loc, p.second)));
+                    if (loc >= 0) {
+                        Uniform uni = {0};
+                        if (p.second.isRange) {
+                            uni.min = 0.0;
+                            uni.max = 1.0;
+                            if (code[i+l] == '(') {
+                                size_t sob = i + l;
+                                size_t eob = sob;
+                                while (code[eob] != ')' && eob < len) eob++;
+                                if (eob >= len) {
+                                    TraceLog(LOG_WARNING, "Missing closing bracket in range specifier for uniform \"%s\"", name.c_str());
+                                } else {
+                                    uni.max = atof(&code[sob+1]);
+                                    while (strchr(",\n", code[sob]) == nullptr && sob < eob) sob++;
+                                    if (code[sob] == ',') {
+                                        // two numbers -> range X..Y
+                                        uni.min = uni.max;
+                                        uni.max = atof(&code[sob+1]);
+                                    } else {
+                                        // single number -> range 0..X
+                                    }
+                                }
+                            }
+                        }
+                        if (set_buffers) {
+                            if (other_uniform_buffers.count(name) > 0) {
+                                if (new_other_uniform_buffers.count(name) < 1) {
+                                    Uniform uni2 = other_uniform_buffers[name];
+                                    uni2.min = uni.min;
+                                    uni2.max = uni.max;
+                                    uni = uni2;
+                                }
+                                new_other_uniform_buffers.insert(std::make_pair(name, uni));
+                                switch (p.second) {
+                                    case FLOAT:
+                                    case SLIDER:
+                                        SetShaderValue(ps->pixelShader, loc, &uni.f, SHADER_UNIFORM_FLOAT);
+                                        break;
+                                    case INT:
+                                        SetShaderValue(ps->pixelShader, loc, &uni.i, SHADER_UNIFORM_INT);
+                                        break;
+                                    case VEC2:
+                                    case SLIDER2:
+                                        SetShaderValue(ps->pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC2);
+                                        break;
+                                    case VEC3:
+                                    case SLIDER3:
+                                    case COLOR3:
+                                        SetShaderValue(ps->pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC3);
+                                        break;
+                                    case VEC4:
+                                    case COLOR4:
+                                    case SLIDER4:
+                                        SetShaderValue(ps->pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC4);
+                                        break;
+                                    default:
+                                        break;
+                                }
+                            } else {
+                                switch (p.second) {
+                                    case FLOAT:
+                                        glGetUniformfv(ps->pixelShader.id, loc, &uni.f);
+                                        break;
+                                    case INT:
+                                        glGetUniformiv(ps->pixelShader.id, loc, &uni.i);
+                                        break;
+                                    case VEC2:
+                                    case VEC3:
+                                    case VEC4:
+                                    case COLOR3:
+                                    case COLOR4:
+                                    case SLIDER:
+                                    case SLIDER2:
+                                    case SLIDER3:
+                                    case SLIDER4:
+                                        glGetUniformfv(ps->pixelShader.id, loc, (float*)&uni.v);
+                                        break;
+                                    default:
+                                        break;
+                                }
+                                if (p.second < SAMPLER2D) {
+                                    new_other_uniform_buffers.insert(std::make_pair(name, uni));
+                                }
+                            }
+                            // if (p.second == SAMPLER2D) {
+                            //     SetShaderValueTexture(pixelShader, loc, BlankTexture());
+                            // }
+                        }
+                        if (p.second.isRange) {
+                            TraceLog(LOG_INFO, "found uniform %s %s (range %.3f to %.3f)", s.c_str(), name.c_str(), uni.min, uni.max);
+                        } else {
+                            TraceLog(LOG_INFO, "found uniform %s %s", s.c_str(), name.c_str());
+                        }
+                    }
+                    i = eol - code;
+                    break;
+                }
+            }
+        } else {
+            i++;
+        }
+    }
+}
+
 
 bool PixelShader::Load(const char* filename) {
     std::ifstream fd(filename, std::ios::in | std::ios::binary);
     char* fragment_code;
     size_t len = 0;
+    drawType = ShaderDrawType::NONE;
     if (fd.is_open()) {
         fd.seekg(0, std::ios::end);
         len = fd.tellg();
@@ -419,7 +639,35 @@ bool PixelShader::Load(const char* filename) {
     if (len == 0) {
         return false;
     }
-    Shader newPixelShader = LoadShaderFromMemory(vertex_shader_code, fragment_code);
+    // check for shader type
+    drawType = ShaderDrawType::TEXTURE;
+    size_t i = 0;
+    while (i < len) {
+        if (!memcmp(&fragment_code[i], "#type: ", strlen("#type: "))) {
+            i += strlen("#type: ");
+            while (isspace(fragment_code[i]) && i < len) i++;
+            if (!memcmp(&fragment_code[i], "model", strlen("model"))) {
+                drawType = ShaderDrawType::MODEL;
+                break;
+            }
+        } else {
+            i++;
+        }
+    }
+    Shader newPixelShader;
+    const char* vertex_code;
+    switch (drawType) {
+        case MODEL:
+            TraceLog(LOG_INFO, "Loading model shader.");
+            newPixelShader = LoadShaderFromMemory(vertex_code = vertex_shader_code_model, fragment_code);
+            model = LoadModelFromMesh(GenMeshSphere(1.0, 20.0, 20.0));
+            break;
+        case TEXTURE:
+        default:
+            TraceLog(LOG_INFO, "Loading pixel shader.");
+            newPixelShader = LoadShaderFromMemory(vertex_code = vertex_shader_code_default, fragment_code);
+            break;
+    }
     if (!IsShaderReady(newPixelShader)) {
         delete[] fragment_code;
         return false;
@@ -431,151 +679,22 @@ bool PixelShader::Load(const char* filename) {
 
     std::map<std::string, Uniform> new_other_uniform_buffers;
     shader_locs.clear();
-    size_t i = 0;
-    sampler_count = 0;
-    while (i < len) {
-        if (!memcmp(&fragment_code[i], "uniform ", strlen("uniform "))) {
-            // TraceLog(LOG_INFO, "found uniform at offset %u", i);
-            i += strlen("uniform ");
-            while (isspace(fragment_code[i]) && i < len) i++;
-            for (auto p : shader_uniform_type_strings) {
-                std::string s = p.first;
-                size_t l = s.length();
-                if (!memcmp(&fragment_code[i], s.c_str(), s.length()) &&
-                    !(fragment_code[i+l]=='_' || isalnum(fragment_code[i+l]))) {
-                        size_t j = i + l + 1;
-                        char* eol = (char*)memchr(&fragment_code[j], '\n', len-j);
-                        if (eol == nullptr) eol = (char*)memchr(&fragment_code[j], 0x0D, len-j);
-                        if (eol == nullptr) eol = &fragment_code[len];
-                        else {
-                            while (eol>fragment_code && strchr("\n\x0D", eol[-1])) {
-                                eol--;
-                            }
-                            if (eol <= fragment_code) continue;
-                        }
-                        if (eol[-1] != ';') continue;
-                        char* eos = &fragment_code[j];
-                        if (fragment_code[i+l] == '(') {
-                            while (eos < eol && *eos != ')') eos++;
-                            while (eos < eol && !(isalnum(*eos) || *eos == '_')) eos++;
-                            j = eos - fragment_code;
-                        }
-                        while (eos < eol && (isalnum(*eos) || *eos == '_')) eos++;
-                        std::string name = std::string(&fragment_code[j], eos - &fragment_code[j]);
-                        int loc = -1;
-                        if (p.second == SAMPLER2D) {
-                            // location for samplers is different
-                            loc = sampler_count++;
-                        } else {
-                            loc = rlGetLocationUniform(pixelShader.id, name.c_str());
-                        }
-                        // if (name == "texture0") {
-                        //     continue;
-                        // }
-                        if (loc == -1) {
-                            TraceLog(LOG_WARNING,
-                                "Failed to locate uniform \"%s\" in shader despite it appearing in the shader source!", name.c_str());
-                        } else if (loc >= 0) {
-                            Uniform uni = {0};
-                            shader_locs.insert(std::make_pair(name, std::make_pair(loc, p.second)));
-                            if (p.second.isRange) {
-                                uni.min = 0.0;
-                                uni.max = 1.0;
-                                if (fragment_code[i+l] == '(') {
-                                    size_t sob = i + l;
-                                    size_t eob = sob;
-                                    while (fragment_code[eob] != ')' && eob < len) eob++;
-                                    if (eob >= len) {
-                                        TraceLog(LOG_WARNING, "Missing closing bracket in range specifier for uniform \"%s\"", name.c_str());
-                                    } else {
-                                        uni.max = atof(&fragment_code[sob+1]);
-                                        while (strchr(",\n", fragment_code[sob]) == nullptr && sob < eob) sob++;
-                                        if (fragment_code[sob] == ',') {
-                                            // two numbers -> range X..Y
-                                            uni.min = uni.max;
-                                            uni.max = atof(&fragment_code[sob+1]);
-                                        } else {
-                                            // single number -> range 0..X
-                                        }
-                                    }
-                                }
-                            }
-                            if (other_uniform_buffers.count(name) > 0) {
-                                if (new_other_uniform_buffers.count(name) < 1) {
-                                    Uniform uni2 = other_uniform_buffers[name];
-                                    uni2.min = uni.min;
-                                    uni2.max = uni.max;
-                                    uni = uni2;
-                                }
-                                new_other_uniform_buffers.insert(std::make_pair(name, uni));
-                                switch (p.second) {
-                                    case FLOAT:
-                                    case SLIDER:
-                                        SetShaderValue(pixelShader, loc, &uni.f, SHADER_UNIFORM_FLOAT);
-                                        break;
-                                    case INT:
-                                        SetShaderValue(pixelShader, loc, &uni.i, SHADER_UNIFORM_INT);
-                                        break;
-                                    case VEC2:
-                                    case SLIDER2:
-                                        SetShaderValue(pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC2);
-                                        break;
-                                    case VEC3:
-                                    case SLIDER3:
-                                    case COLOR3:
-                                        SetShaderValue(pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC3);
-                                        break;
-                                    case VEC4:
-                                    case COLOR4:
-                                    case SLIDER4:
-                                        SetShaderValue(pixelShader, loc, &uni.v, SHADER_UNIFORM_VEC4);
-                                        break;
-                                    default:
-                                        break;
-                                }
-                            } else {
-                                switch (p.second) {
-                                    case FLOAT:
-                                        glGetUniformfv(pixelShader.id, loc, &uni.f);
-                                        break;
-                                    case INT:
-                                        glGetUniformiv(pixelShader.id, loc, &uni.i);
-                                        break;
-                                    case VEC2:
-                                    case VEC3:
-                                    case VEC4:
-                                    case COLOR3:
-                                    case COLOR4:
-                                    case SLIDER:
-                                    case SLIDER2:
-                                    case SLIDER3:
-                                    case SLIDER4:
-                                        glGetUniformfv(pixelShader.id, loc, (float*)&uni.v);
-                                        break;
-                                    default:
-                                        break;
-                                }
-                                if (p.second < SAMPLER2D) {
-                                    new_other_uniform_buffers.insert(std::make_pair(name, uni));
-                                }
-                            }
-                            // if (p.second == SAMPLER2D) {
-                            //     SetShaderValueTexture(pixelShader, loc, BlankTexture());
-                            // }
-                            if (p.second.isRange) {
-                                TraceLog(LOG_INFO, "found uniform %s %s (range %.3f to %.3f)", s.c_str(), name.c_str(), uni.min, uni.max);
-                            } else {
-                                TraceLog(LOG_INFO, "found uniform %s %s", s.c_str(), name.c_str());
-                            }
-                        }
-                        i = eol - fragment_code;
-                        break;
-                }
-            }
-        } else {
-            i++;
+
+    LoadUniformsFromCode(fragment_code, len, other_uniform_buffers, new_other_uniform_buffers, this);
+    LoadUniformsFromCode(vertex_code, strlen(vertex_code), other_uniform_buffers, new_other_uniform_buffers, this, false);
+
+    std::vector<std::string> to_remove;
+    for (auto p : shader_locs) {
+        if (p.second.first == -1) {
+            to_remove.push_back(p.first);
+            TraceLog(LOG_WARNING,
+                "Uniform \"%s\" is defined but not active, assigning it will have no effect.", p.first.c_str());
         }
     }
+    for (auto r : to_remove) {
+        shader_locs.erase(r);
+    }
+
     editor.SetText(fragment_code);
     if (IsFileExtension(filename, ".glsl") || IsFileExtension(filename, ".fs") || IsFileExtension(filename, ".vs")) {
         editor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
@@ -625,6 +744,14 @@ void PixelShader::Unload() {
     renderTexture = {0};
     selfTexture = {0};
     pixelShader = {0};
+    if (drawType == ShaderDrawType::MODEL) {
+        if (IsModelReady(model)) {
+            UnloadModel(model);
+        }
+        delete modelFilebuf;
+        model = {0};
+        modelFilebuf = nullptr;
+    }
 }
 
 void PixelShader::Setup(int width, int height) {
@@ -700,7 +827,94 @@ bool PixelShader::InputTextureFields(std::string str) {
     return isSet;
 }
 
-void PixelShader::DrawGUI() {
+void PixelShader::UpdateCamera(float dt) {
+    static Vector2 cursorPos;
+    if ((controlling_camera || focused) && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        // don't enable control if the mouse isn't hovering over the window and it is active
+        if (!controlling_camera && !CheckCollisionPointRec(GetMousePosition(), outputArea)) {
+            return;
+        }
+        controlling_camera = !controlling_camera;
+        if (controlling_camera) {
+            cursorPos = GetMousePosition();
+            DisableCursor();
+        } else {
+            EnableCursor();
+            SetMousePosition(cursorPos.x, cursorPos.y);
+        }
+    } else if (controlling_camera) {
+        // Note: most of this code is adapted from Raylib's camera implementation
+        // I extracted it in order to couple it to framerate
+        float CAMERA_MOVE_SPEED = dt*1.8f;
+        float CAMERA_ROTATION_SPEED = dt*0.6f;
+        float CAMERA_PAN_SPEED = dt*4.0f;
+        float CAMERA_MOUSE_MOVE_SENSITIVITY = dt*0.06f;
+        float CAMERA_MOUSE_SCROLL_SENSITIVITY = dt*3.0f;
+        Vector2 mousePositionDelta = GetMouseDelta();
+        SetMousePosition(outputArea.x+outputArea.width*0.5f, outputArea.y+outputArea.height*0.5f);
+
+        const bool moveInWorldPlane = false;
+        const bool rotateAroundTarget = false;
+        const bool lockView = true;
+        const bool rotateUp = false;
+
+        // Camera rotation
+        if (IsKeyDown(KEY_DOWN)) CameraPitch(&camera, -CAMERA_ROTATION_SPEED, lockView, rotateAroundTarget, rotateUp);
+        if (IsKeyDown(KEY_UP)) CameraPitch(&camera, CAMERA_ROTATION_SPEED, lockView, rotateAroundTarget, rotateUp);
+        if (IsKeyDown(KEY_RIGHT)) CameraYaw(&camera, -CAMERA_ROTATION_SPEED, rotateAroundTarget);
+        if (IsKeyDown(KEY_LEFT)) CameraYaw(&camera, CAMERA_ROTATION_SPEED, rotateAroundTarget);
+        if (IsKeyDown(KEY_Q)) CameraRoll(&camera, -CAMERA_ROTATION_SPEED);
+        if (IsKeyDown(KEY_E)) CameraRoll(&camera, CAMERA_ROTATION_SPEED);
+
+        // Camera movement
+        if (!IsGamepadAvailable(0))
+        {
+            // Camera pan
+            if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE))
+            {
+                const Vector2 mouseDelta = GetMouseDelta();
+                if (mouseDelta.x > 0.0f) CameraMoveRight(&camera, CAMERA_PAN_SPEED, false);
+                if (mouseDelta.x < 0.0f) CameraMoveRight(&camera, -CAMERA_PAN_SPEED, false);
+                if (mouseDelta.y > 0.0f) CameraMoveUp(&camera, -CAMERA_PAN_SPEED);
+                if (mouseDelta.y < 0.0f) CameraMoveUp(&camera, CAMERA_PAN_SPEED);
+            }
+            else
+            {
+                // Mouse support
+                CameraYaw(&camera, -mousePositionDelta.x*CAMERA_MOUSE_MOVE_SENSITIVITY, rotateAroundTarget);
+                CameraPitch(&camera, -mousePositionDelta.y*CAMERA_MOUSE_MOVE_SENSITIVITY, lockView, rotateAroundTarget, rotateUp);
+            }
+
+            // Keyboard support
+            if (IsKeyDown(KEY_W)) CameraMoveForward(&camera, CAMERA_MOVE_SPEED, moveInWorldPlane);
+            if (IsKeyDown(KEY_A)) CameraMoveRight(&camera, -CAMERA_MOVE_SPEED, moveInWorldPlane);
+            if (IsKeyDown(KEY_S)) CameraMoveForward(&camera, -CAMERA_MOVE_SPEED, moveInWorldPlane);
+            if (IsKeyDown(KEY_D)) CameraMoveRight(&camera, CAMERA_MOVE_SPEED, moveInWorldPlane);
+        }
+        else
+        {
+            // Gamepad controller support
+            CameraYaw(&camera, -(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X) * 2)*CAMERA_MOUSE_MOVE_SENSITIVITY, rotateAroundTarget);
+            CameraPitch(&camera, -(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y) * 2)*CAMERA_MOUSE_MOVE_SENSITIVITY, lockView, rotateAroundTarget, rotateUp);
+
+            if (GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y) <= -0.25f) CameraMoveForward(&camera, CAMERA_MOVE_SPEED, moveInWorldPlane);
+            if (GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X) <= -0.25f) CameraMoveRight(&camera, -CAMERA_MOVE_SPEED, moveInWorldPlane);
+            if (GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y) >= 0.25f) CameraMoveForward(&camera, -CAMERA_MOVE_SPEED, moveInWorldPlane);
+            if (GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X) >= 0.25f) CameraMoveRight(&camera, CAMERA_MOVE_SPEED, moveInWorldPlane);
+        }
+
+        if (IsKeyDown(KEY_SPACE)) CameraMoveUp(&camera, CAMERA_MOVE_SPEED);
+        if (IsKeyDown(KEY_LEFT_CONTROL)) CameraMoveUp(&camera, -CAMERA_MOVE_SPEED);
+
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            controlling_camera = false;
+            EnableCursor();
+            SetMousePosition(cursorPos.x, cursorPos.y);
+        }
+    }
+}
+
+void PixelShader::DrawGUI(float dt) {
     focused = false;
     ImGui::Begin((name + " Output").c_str(), &is_active);
     focused |= ImGui::IsWindowFocused();
@@ -717,7 +931,21 @@ void PixelShader::DrawGUI() {
         }
     }
 
-    rlImGuiImageSize(&renderTexture.texture, w, h);
+    rlImGuiImageRect(&renderTexture.texture, w, h, {0.0, 0.0, (float)rt_width, -(float)rt_height});
+
+    if (ImGui::Button("Reset Viewport")) {
+        camera.position = {-10, 0, 0};
+        camera.target = {-8, 0, 0};
+        camera.up = {0, 1, 0};
+        camera.fovy = atanf(tanf(fovx * PI / 360.0f) * rt_height/(float)rt_width) * 360.0f / PI;
+    }
+
+    auto wpos = ImGui::GetWindowPos();
+    auto wsize = ImGui::GetWindowSize();
+    outputArea = {
+        wpos.x, wpos.y, wsize.x, wsize.y
+    };
+
     ImGui::End();
 
     ImGui::Begin((name + " Options").c_str(), &is_active);
@@ -769,9 +997,17 @@ void PixelShader::DrawGUI() {
             }
         }
     }
-    int size[2] = {rt_width, rt_height};
+    static int size[2] = {rt_width, rt_height};
+    static float set_size_timer = -1.0f;
     if (ImGui::InputInt2("Render Texture Size", size)) {
-        SetRTSize(rt_width=size[0], rt_height=size[1]);
+        if (size[0] != rt_width || size[1] != rt_height) {
+            set_size_timer = 0.5f;
+        }
+    } else if (set_size_timer > 0.0f) {
+        set_size_timer -= dt;
+        if (set_size_timer <= 0.0f) {
+            SetRTSize(rt_width=size[0], rt_height=size[1]);
+        }
     }
     InputTextureOptions(renderTexture.texture);
     if (ImGui::Button("Clone Shader")) {
@@ -780,6 +1016,26 @@ void PixelShader::DrawGUI() {
     ImGui::SameLine();
     if (ImGui::Button("Copy Reference To Output")) {
         requested_reference = true;
+    }
+    if (drawType == ShaderDrawType::MODEL) {
+        if (modelFilebuf == nullptr) {
+            modelFilebuf = new char[IMAGE_NAME_BUFFER_LENGTH] {0};
+        }
+        ImGui::InputTextWithHint("Model", "path to file", modelFilebuf, IMAGE_NAME_BUFFER_LENGTH);
+        if (ImGui::Button("Browse")) {
+            ;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Load")) {
+            Model newModel = LoadModel(modelFilebuf);
+            if (IsModelReady(newModel)) {
+                if (IsModelReady(model)) {
+                    UnloadModel(model);
+                }
+                model = newModel;
+            }
+
+        }
     }
     ImGui::End();
 
@@ -877,6 +1133,7 @@ void PixelShader::DrawGUI() {
         ImGui::PopID();
     }
     ImGui::End();
+    UpdateCamera(dt);
     DrawTextEditor();
 }
 
