@@ -21,7 +21,6 @@
 #include "raymath.h"
 #include "rlgl.h"
 
-#define VIEW_WINDOW_SIZE 512
 
 #pragma region Constants
 
@@ -846,7 +845,7 @@ void PixelShader::UpdateCamera(float dt) {
     } else if (controlling_camera) {
         // Note: most of this code is adapted from Raylib's camera implementation
         // I extracted it in order to couple it to framerate
-        float CAMERA_MOVE_SPEED = dt*3.0f;
+        float CAMERA_MOVE_SPEED = dt*1.5f;
         float CAMERA_ROTATION_SPEED = dt*1.0f;
         float CAMERA_PAN_SPEED = dt*4.0f;
         float CAMERA_MOUSE_MOVE_SENSITIVITY = dt*0.06f;
@@ -908,16 +907,15 @@ void PixelShader::DrawGUI(float dt) {
     ImGui::Begin((name + " Output").c_str(), &is_active);
     focused |= ImGui::IsWindowFocused();
     int w = rt_width, h = rt_height;
-    if (h < w) {
-        if (w > VIEW_WINDOW_SIZE) {
-            h = ((float)VIEW_WINDOW_SIZE*h)/w;
-            w = VIEW_WINDOW_SIZE;
-        }
-    } else {
-        if (h > VIEW_WINDOW_SIZE) {
-            w = ((float)VIEW_WINDOW_SIZE*w)/h;
-            h = VIEW_WINDOW_SIZE;
-        }
+    int view_width = ImGui::GetWindowWidth();
+    int view_height = ImGui::GetWindowHeight();
+    if (w > view_width) {
+        h = ((float)view_width*h)/w;
+        w = view_width;
+    }
+    if (h > view_height) {
+        w = ((float)view_height*w)/h;
+        h = view_height;
     }
 
     rlImGuiImageRect(&renderTexture.texture, w, h, {0.0, 0.0, (float)rt_width, -(float)rt_height});

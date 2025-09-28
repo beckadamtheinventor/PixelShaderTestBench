@@ -112,6 +112,7 @@ class PixelShader {
         saving_sequence = false;
         saving_single = false;
         saving_gif = false;
+        controlling_camera = false;
         shader_locs.clear();
         image_uniform_buffers.clear();
         other_uniform_buffers.clear();
