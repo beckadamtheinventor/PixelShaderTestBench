@@ -4,6 +4,7 @@
 #include <ctime>
 #include <map>
 #include <fstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -251,7 +252,7 @@ class TextSaveAsCB : public FileDialogs::Callback {
     }
 };
 
-class InputTextureFieldsLoadCB : public FileDialogs::Callback {
+class BrowseFilenameCB : public FileDialogs::Callback {
     char* buf;
     bool* returned;
     // Uniform* uniform;
@@ -261,7 +262,7 @@ class InputTextureFieldsLoadCB : public FileDialogs::Callback {
     public:
     // InputTextureFieldsLoadCB(char* buf, Uniform* uniform, Texture2D& tex, int loc, Shader pixelShader) :
     //     buf(buf), uniform(uniform), tex(tex), loc(loc), pixelShader(pixelShader) {}
-    InputTextureFieldsLoadCB(char* buf, bool* returned) : buf(buf), returned(returned) {}
+    BrowseFilenameCB(char* buf, bool* returned) : buf(buf), returned(returned) {}
     bool operator()(std::string p) {
         if (!p.length()) return false;
         strncpy(buf, p.c_str(), IMAGE_NAME_BUFFER_LENGTH-1);
@@ -422,7 +423,7 @@ void PixelShader::Update(float dt) {
                 Matrix matView = rlGetMatrixModelview();
                 Matrix matProjection = rlGetMatrixProjection();
                 Matrix matModelView = matView;
-                Matrix matNormal = MatrixTranspose(MatrixInvert(matModelView));
+                Matrix matNormal = MatrixIdentity();
                 Matrix matModelViewProjection = MatrixMultiply(matModelView, matProjection);
                 for (auto p : shader_locs) {
                     if (p.second.second == MATRIX) {
@@ -660,7 +661,7 @@ bool PixelShader::Load(const char* filename) {
         case MODEL:
             TraceLog(LOG_INFO, "Loading model shader.");
             newPixelShader = LoadShaderFromMemory(vertex_code = vertex_shader_code_model, fragment_code);
-            model = LoadModelFromMesh(GenMeshSphere(1.0, 20.0, 20.0));
+            model = LoadModelFromMesh(GenMeshSphere(1.0, 40.0, 20.0));
             break;
         case TEXTURE:
         default:
@@ -793,7 +794,7 @@ bool PixelShader::InputTextureFields(std::string str) {
     if (ImGui::Button("Browse")) {
         std::string id = std::string("BrowseForImageInput ")+str;
         fileDialogManager.openIfNotAlready(id, "Select an Image ("+str+")",
-            InputTextureFieldsLoadCB(buf, &browse_returned[str]));
+            BrowseFilenameCB(buf, &browse_returned[str]));
     }
 
     ImGui::SameLine();
@@ -845,8 +846,8 @@ void PixelShader::UpdateCamera(float dt) {
     } else if (controlling_camera) {
         // Note: most of this code is adapted from Raylib's camera implementation
         // I extracted it in order to couple it to framerate
-        float CAMERA_MOVE_SPEED = dt*1.8f;
-        float CAMERA_ROTATION_SPEED = dt*0.6f;
+        float CAMERA_MOVE_SPEED = dt*3.0f;
+        float CAMERA_ROTATION_SPEED = dt*1.0f;
         float CAMERA_PAN_SPEED = dt*4.0f;
         float CAMERA_MOUSE_MOVE_SENSITIVITY = dt*0.06f;
         float CAMERA_MOUSE_SCROLL_SENSITIVITY = dt*3.0f;
@@ -869,23 +870,11 @@ void PixelShader::UpdateCamera(float dt) {
         // Camera movement
         if (!IsGamepadAvailable(0))
         {
-            // Camera pan
-            if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE))
-            {
-                const Vector2 mouseDelta = GetMouseDelta();
-                if (mouseDelta.x > 0.0f) CameraMoveRight(&camera, CAMERA_PAN_SPEED, false);
-                if (mouseDelta.x < 0.0f) CameraMoveRight(&camera, -CAMERA_PAN_SPEED, false);
-                if (mouseDelta.y > 0.0f) CameraMoveUp(&camera, -CAMERA_PAN_SPEED);
-                if (mouseDelta.y < 0.0f) CameraMoveUp(&camera, CAMERA_PAN_SPEED);
-            }
-            else
-            {
-                // Mouse support
-                CameraYaw(&camera, -mousePositionDelta.x*CAMERA_MOUSE_MOVE_SENSITIVITY, rotateAroundTarget);
-                CameraPitch(&camera, -mousePositionDelta.y*CAMERA_MOUSE_MOVE_SENSITIVITY, lockView, rotateAroundTarget, rotateUp);
-            }
+            // Mouse
+            CameraYaw(&camera, -mousePositionDelta.x*CAMERA_MOUSE_MOVE_SENSITIVITY, rotateAroundTarget);
+            CameraPitch(&camera, -mousePositionDelta.y*CAMERA_MOUSE_MOVE_SENSITIVITY, lockView, rotateAroundTarget, rotateUp);
 
-            // Keyboard support
+            // Keyboard
             if (IsKeyDown(KEY_W)) CameraMoveForward(&camera, CAMERA_MOVE_SPEED, moveInWorldPlane);
             if (IsKeyDown(KEY_A)) CameraMoveRight(&camera, -CAMERA_MOVE_SPEED, moveInWorldPlane);
             if (IsKeyDown(KEY_S)) CameraMoveForward(&camera, -CAMERA_MOVE_SPEED, moveInWorldPlane);
@@ -893,7 +882,7 @@ void PixelShader::UpdateCamera(float dt) {
         }
         else
         {
-            // Gamepad controller support
+            // Gamepad controller
             CameraYaw(&camera, -(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X) * 2)*CAMERA_MOUSE_MOVE_SENSITIVITY, rotateAroundTarget);
             CameraPitch(&camera, -(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y) * 2)*CAMERA_MOUSE_MOVE_SENSITIVITY, lockView, rotateAroundTarget, rotateUp);
 
@@ -933,7 +922,7 @@ void PixelShader::DrawGUI(float dt) {
 
     rlImGuiImageRect(&renderTexture.texture, w, h, {0.0, 0.0, (float)rt_width, -(float)rt_height});
 
-    if (ImGui::Button("Reset Viewport")) {
+    if (drawType == ShaderDrawType::MODEL && ImGui::Button("Reset Viewport")) {
         camera.position = {-10, 0, 0};
         camera.target = {-8, 0, 0};
         camera.up = {0, 1, 0};
@@ -1018,15 +1007,20 @@ void PixelShader::DrawGUI(float dt) {
         requested_reference = true;
     }
     if (drawType == ShaderDrawType::MODEL) {
+        static bool browse_returned;
+        bool isSet = false;
+
         if (modelFilebuf == nullptr) {
             modelFilebuf = new char[IMAGE_NAME_BUFFER_LENGTH] {0};
         }
         ImGui::InputTextWithHint("Model", "path to file", modelFilebuf, IMAGE_NAME_BUFFER_LENGTH);
         if (ImGui::Button("Browse")) {
-            ;
+            std::string id = std::string("BrowseForModelInput ") + std::to_string(num);
+            fileDialogManager.openIfNotAlready(id, "Select a model",
+                BrowseFilenameCB(modelFilebuf, &browse_returned));
         }
         ImGui::SameLine();
-        if (ImGui::Button("Load")) {
+        if (ImGui::Button("Load") || browse_returned) {
             Model newModel = LoadModel(modelFilebuf);
             if (IsModelReady(newModel)) {
                 if (IsModelReady(model)) {
@@ -1034,7 +1028,7 @@ void PixelShader::DrawGUI(float dt) {
                 }
                 model = newModel;
             }
-
+            browse_returned = false;
         }
     }
     ImGui::End();

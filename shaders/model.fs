@@ -14,8 +14,20 @@ in vec3 fragPosition;
 in vec3 fragNormal;
 
 uniform sampler2D texture0;
+uniform vec3 lightPosition = vec3(0, 4, 1);
+uniform color3 lightColor = vec3(1.0,1.0,1.0);
+uniform float lightIntensity = 1.0;
+uniform color3 ambientColor = vec3(0.1,0.1,0.1);
 
+uniform vec3 cameraPosition = vec3(1.0, 0.0, 0.0);
 
 void main() {
-    gl_FragColor = vec4(texture(texture0, fragTexcoord), 1.0);
+	vec4 diff = texture(texture0, fragTexCoord);
+	vec3 dir = lightPosition - fragPosition;
+	float dist = length(dir);
+	dir = normalize(dir);
+	float LdotN = dot(dir, fragNormal);
+	vec3 light = ambientColor + lightColor * lightIntensity * max(LdotN, 0.0);
+	vec3 col = diff.rgb * light;
+	gl_FragColor = vec4(col, 1.0);
 }
