@@ -660,7 +660,7 @@ bool PixelShader::Load(const char* filename) {
         case MODEL:
             TraceLog(LOG_INFO, "Loading model shader.");
             newPixelShader = LoadShaderFromMemory(vertex_code = vertex_shader_code_model, fragment_code);
-            model = LoadModelFromMesh(GenMeshSphere(1.0, 40.0, 20.0));
+            LoadModel("(sphere)");
             break;
         case TEXTURE:
         default:
@@ -773,6 +773,30 @@ void PixelShader::SetClearColor(int r, int g, int b, int a) {
     clearColor.g = g;
     clearColor.b = b;
     clearColor.a = a;
+}
+
+void PixelShader::LoadModel(std::string filename) {
+    Model newModel;
+    if (filename == "(sphere)") {
+        newModel = LoadModelFromMesh(GenMeshSphere(1.0, 40.0, 20.0));
+    } else if (filename == "(cube)") {
+        newModel = LoadModelFromMesh(GenMeshCube(1.0, 1.0, 1.0));
+    } else if (filename == "(donut)") {
+        newModel = LoadModelFromMesh(GenMeshTorus(0.5, 2.0, 20.0, 40.0));
+    } else {
+        newModel = ::LoadModel(filename.c_str());
+    }
+    if (IsModelReady(newModel)) {
+        if (IsModelReady(model)) {
+            UnloadModel(model);
+        }
+        model = newModel;
+        if (modelFilebuf == nullptr) {
+            modelFilebuf = new char[IMAGE_NAME_BUFFER_LENGTH];
+        }
+        strncpy(modelFilebuf, filename.c_str(), IMAGE_NAME_BUFFER_LENGTH-1);
+        modelFilebuf[IMAGE_NAME_BUFFER_LENGTH-1] = 0;
+    }
 }
 
 
@@ -1019,13 +1043,7 @@ void PixelShader::DrawGUI(float dt) {
         }
         ImGui::SameLine();
         if (ImGui::Button("Load") || browse_returned) {
-            Model newModel = LoadModel(modelFilebuf);
-            if (IsModelReady(newModel)) {
-                if (IsModelReady(model)) {
-                    UnloadModel(model);
-                }
-                model = newModel;
-            }
+            LoadModel(modelFilebuf);
             browse_returned = false;
         }
     }

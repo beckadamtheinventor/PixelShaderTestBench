@@ -139,6 +139,7 @@ class PixelShader {
     void Setup(int width, int height);
     void SetRTSize(int width, int height);
     void SetClearColor(int r, int g, int b, int a);
+    void LoadModel(std::string fname);
     bool InputTextureFields(std::string str);
     void UpdateCamera(float dt);
     void DrawGUI(float dt);

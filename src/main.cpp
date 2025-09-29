@@ -79,6 +79,24 @@ bool NewPixelShader(std::string file) {
     return false;
 }
 
+template<class T>
+void LoadFloatArray(nlohmann::json json, T& dest) {
+    if (!json.is_array()) {
+        return;
+    }
+    memset(&dest, 0, sizeof(dest));
+    for (int i=0; i<json.size(); i++) {
+        if (!json[i].is_number()) {
+            return;
+        }
+        if (i*sizeof(float) >= sizeof(dest)) {
+            return;
+        }
+        float val = json[i].get<float>();
+        memcpy((&dest)+i*sizeof(float), &val, sizeof(float));
+    }
+}
+
 JsonConfig LoadWorkspace(std::string fname="workspace.json") {
     JsonConfig workspaceCfg(fname);
     if (workspaceCfg.contains("shaders")) {
@@ -90,6 +108,7 @@ JsonConfig LoadWorkspace(std::string fname="workspace.json") {
                 if (!j.is_object()) continue;
                 int id = LoadPixelShader(fname);
                 if (id != -1) {
+                    PixelShader* ps = pixelShaders[id];
                     if (j.contains("clear_color") && j["clear_color"].is_array()) {
                         auto arr = j["clear_color"];
                         int clearColorI[4] = {0};
@@ -99,8 +118,22 @@ JsonConfig LoadWorkspace(std::string fname="workspace.json") {
                             }
                         }
                     }
+                    if (j.contains("camera") && j["camera"].is_object()) {
+                        auto cam = j["camera"];
+                        if (cam.contains("position") && cam["position"].is_array()) {
+                            LoadFloatArray(cam["position"], ps->camera.position);
+                        }
+                        if (cam.contains("target") && cam["target"].is_array()) {
+                            LoadFloatArray(cam["target"], ps->camera.target);
+                        }
+                        if (cam.contains("up") && cam["up"].is_array()) {
+                            LoadFloatArray(cam["up"], ps->camera.up);
+                        }
+                    }
+                    if (j.contains("model") && j["model"].is_string()) {
+                        ps->LoadModel(j["model"].get<std::string>());
+                    }
                     if (j.contains("uniforms") && j["uniforms"].is_object()) {
-                        PixelShader* ps = pixelShaders[id];
                         if (j.contains("width") && j["width"].is_number()) {
                             if (j.contains("height") && j["height"].is_number()) {
                                 ps->SetRTSize(j["width"].get<int>(), j["height"].get<int>());
@@ -123,13 +156,23 @@ void SaveWorkspace(JsonConfig& cfg) {
         auto ps = p.second;
         if (ps == nullptr) continue;
         nlohmann::json j = ps->DumpUniforms();
-        json[std::string(ps->filename)] = {
+        Camera3D c = ps->camera;
+        j = {
             {"uniforms", j},
             {"width", ps->rt_width},
             {"height", ps->rt_height},
             {"id", ps->num},
+            {"camera", {
+                "position", nlohmann::json::array({c.position.x, c.position.y, c.position.z}),
+                "target", nlohmann::json::array({c.target.x, c.target.y, c.target.z}),
+                "up", nlohmann::json::array({c.up.x, c.up.y, c.up.z}),
+            }},
             {"clear_color", nlohmann::json::array({ps->clearColor.r, ps->clearColor.g, ps->clearColor.b, ps->clearColor.a})},
         };
+        if (ps->modelFilebuf[0] > 0) {
+            j["model"] = std::string(ps->modelFilebuf);
+        }
+        json[std::string(ps->filename)] = j;
     }
     cfg["shaders"] = json;
     cfg.save();
