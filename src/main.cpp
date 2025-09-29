@@ -234,6 +234,10 @@ int main(int argc, char** argv) {
     bool autosave_workspace = true;
     float auto_save_timer = 0;
     float auto_save_interval = AUTO_SAVE_INTERVAL;
+    bool scroll_log_to_bottom = true;
+    float dt = 0.0f;
+    int frame_counter = 0;
+    int target_fps = 60;
 
     rlImGuiSetup(true);
     ImGuiIO& io = ImGui::GetIO();
@@ -259,13 +263,21 @@ int main(int argc, char** argv) {
     if (preferencesCfg.contains("autosave_interval")) {
         auto_save_interval = preferencesCfg.get<float>("autosave_interval");
     }
+    if (preferencesCfg.contains("update_rate")) {
+        render_texture_update_rate = preferencesCfg.get<float>("update_rate");
+        if (render_texture_update_rate < 1) {
+            render_texture_update_rate = 1;
+        }
+    }
+    if (preferencesCfg.contains("target_fps")) {
+        target_fps = preferencesCfg.get<float>("target_fps");
+        if (target_fps < 10) {
+            target_fps = 10;
+        }
+    }
 
     JsonConfig workspaceCfg = LoadWorkspace();
 
-    bool scroll_log_to_bottom = true;
-    float dt = 0.0f;
-    int frame_counter = 0;
-    int target_fps = 60;
     while (!WindowShouldClose()) {
         BeginDrawing();
         if (render_texture_update_timer >= 1.0 / render_texture_update_rate) {
@@ -375,6 +387,8 @@ int main(int argc, char** argv) {
     {
         preferencesCfg.set("autosave", autosave_workspace);
         preferencesCfg.set("autosave_interval", auto_save_interval);
+        preferencesCfg.set("update_rate", render_texture_update_rate);
+        preferencesCfg.set("target_fps", target_fps);
         preferencesCfg.save();
     }
 
