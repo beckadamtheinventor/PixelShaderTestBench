@@ -98,11 +98,11 @@ class PixelShader {
     Model model = {0};
     char* modelFilebuf = nullptr;
     Camera3D camera = {
-        .position = {0, 0, -4},
-        .target = {0, 0, -3},
-        .up = {0, 1, 0},
-        .fovy = 90.0,
-        .projection = CAMERA_PERSPECTIVE
+        {0, 0, -4},
+        {0, 0, -3},
+        {0, 1, 0},
+        90.0,
+        CAMERA_PERSPECTIVE
     };
 
     PixelShader() {
