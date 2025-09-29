@@ -598,7 +598,7 @@ void LoadUniformsFromCode(const char* code, int len,
                                     default:
                                         break;
                                 }
-                                if (p.second < SAMPLER2D) {
+                                if (p.second != SAMPLER2D && p.second != MATRIX) {
                                     new_other_uniform_buffers.insert(std::make_pair(name, uni));
                                 }
                             }
@@ -1017,7 +1017,7 @@ void PixelShader::DrawGUI(float dt) {
             SetRTSize(size[0], size[1]);
         }
     }
-    InputTextureOptions(renderTexture.texture);
+    // InputTextureOptions(renderTexture.texture);
     if (ImGui::Button("Clone Shader")) {
         requested_clone = true;
     }
@@ -1235,7 +1235,7 @@ void PixelShader::DrawTextEditor() {
 
 void PixelShader::SetUniform(std::string name, ShaderUniformType type, void* value) {
     if (shader_locs.count(name) < 1) return;
-    if (type < SAMPLER2D && other_uniform_buffers.count(name) < 1) return;
+    if (type != SAMPLER2D && other_uniform_buffers.count(name) < 1) return;
     auto v = shader_locs[name];
     Uniform* uniform = type == SAMPLER2D ? nullptr : &other_uniform_buffers[name];
     switch (type) {
