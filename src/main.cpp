@@ -169,7 +169,7 @@ void SaveWorkspace(JsonConfig& cfg) {
             }},
             {"clear_color", nlohmann::json::array({ps->clearColor.r, ps->clearColor.g, ps->clearColor.b, ps->clearColor.a})},
         };
-        if (ps->modelFilebuf[0] > 0) {
+        if (ps->modelFilebuf != nullptr && ps->modelFilebuf[0] > 0) {
             j["model"] = std::string(ps->modelFilebuf);
         }
         json[std::string(ps->filename)] = j;
