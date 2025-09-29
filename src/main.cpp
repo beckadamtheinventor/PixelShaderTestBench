@@ -133,14 +133,14 @@ JsonConfig LoadWorkspace(std::string fname="workspace.json") {
                     if (j.contains("model") && j["model"].is_string()) {
                         ps->LoadModel(j["model"].get<std::string>());
                     }
-                    if (j.contains("uniforms") && j["uniforms"].is_object()) {
-                        if (j.contains("width") && j["width"].is_number()) {
-                            if (j.contains("height") && j["height"].is_number()) {
-                                ps->SetRTSize(j["width"].get<int>(), j["height"].get<int>());
-                            } else {
-                                ps->SetRTSize(j["width"].get<int>(), j["width"].get<int>());
-                            }
+                    if (j.contains("width") && j["width"].is_number()) {
+                        if (j.contains("height") && j["height"].is_number()) {
+                            ps->SetRTSize(j["width"].get<int>(), j["height"].get<int>());
+                        } else {
+                            ps->SetRTSize(j["width"].get<int>(), j["width"].get<int>());
                         }
+                    }
+                    if (j.contains("uniforms") && j["uniforms"].is_object()) {
                         ps->LoadUniforms(j["uniforms"]);
                     }
                 }

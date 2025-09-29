@@ -348,6 +348,7 @@ void PixelShader::Update(float dt) {
                 std::to_string(frame_counter) + GetFileExtension(saving_filename.c_str());
         }
         Image img = LoadImageFromTexture(renderTexture.texture);
+        ImageFlipVertical(&img);
         if (saving_gif) {
             msf_gif_frame(&gifState, (uint8_t*)img.data, dt*100.0f, 16, rt_width*4);
         } else {
@@ -809,11 +810,12 @@ bool PixelShader::InputTextureFields(std::string str) {
     auto& tex = image_uniform_buffers[str].second;
     ImGui::PushID(str.c_str());
     ImGui::InputTextWithHint(str.c_str(), "path to image", buf, IMAGE_NAME_BUFFER_LENGTH);
+    bool isSet = false;
     static std::map<std::string, bool> browse_returned;
     if (browse_returned.count(str) < 1) {
         browse_returned.insert(std::make_pair(str, false));
     }
-    bool isSet = false;
+
     if (ImGui::Button("Browse")) {
         std::string id = std::string("BrowseForImageInput ")+str;
         fileDialogManager.openIfNotAlready(id, "Select an Image ("+str+")",
@@ -821,14 +823,15 @@ bool PixelShader::InputTextureFields(std::string str) {
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Reload Image")) {
+    if (ImGui::Button("Reload Image") || browse_returned[str]) {
+        browse_returned[str] = false;
         SetUniform(str, SAMPLER2D, buf);
         isSet = true;
     }
     InputTextureOptions(tex);
     if (ImGui::Button("Set RT Size from Texture")) {
         if (tex.width > 0 && tex.height > 0) {
-            SetRTSize(rt_width=tex.width, rt_height=tex.height);
+            SetRTSize(tex.width, tex.height);
         }
     }
     if (pixelShaderReference != nullptr) {
@@ -842,17 +845,14 @@ bool PixelShader::InputTextureFields(std::string str) {
     }
     ImGui::PopID();
 
-    if (browse_returned[str]) {
-        browse_returned[str] = false;
-        SetUniform(str, SAMPLER2D, buf);
-        isSet = true;
-    }
-
     return isSet;
 }
 
 void PixelShader::UpdateCamera(float dt) {
     static Vector2 cursorPos;
+    if (drawType != ShaderDrawType::MODEL) {
+        return;
+    }
     if ((controlling_camera || focused) && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
         // don't enable control if the mouse isn't hovering over the window and it is active
         if (!controlling_camera && !CheckCollisionPointRec(GetMousePosition(), outputArea)) {
@@ -933,13 +933,16 @@ void PixelShader::DrawGUI(float dt) {
     int w = rt_width, h = rt_height;
     int view_width = ImGui::GetWindowWidth();
     int view_height = ImGui::GetWindowHeight();
-    if (w > view_width) {
-        h = ((float)view_width*h)/w;
-        w = view_width;
-    }
-    if (h > view_height) {
-        w = ((float)view_height*w)/h;
-        h = view_height;
+    if (view_width < view_height) {
+        if (w != view_width) {
+            h = ((float)view_width*h)/w;
+            w = view_width;
+        }
+    } else {
+        if (h != view_height) {
+            w = ((float)view_height*w)/h;
+            h = view_height;
+        }
     }
 
     rlImGuiImageRect(&renderTexture.texture, w, h, {0.0, 0.0, (float)rt_width, -(float)rt_height});
@@ -1008,16 +1011,10 @@ void PixelShader::DrawGUI(float dt) {
             }
         }
     }
-    static int size[2] = {rt_width, rt_height};
-    static float set_size_timer = -1.0f;
+    int size[2] = {rt_width, rt_height};
     if (ImGui::InputInt2("Render Texture Size", size)) {
         if (size[0] != rt_width || size[1] != rt_height) {
-            set_size_timer = 0.5f;
-        }
-    } else if (set_size_timer > 0.0f) {
-        set_size_timer -= dt;
-        if (set_size_timer <= 0.0f) {
-            SetRTSize(rt_width=size[0], rt_height=size[1]);
+            SetRTSize(size[0], size[1]);
         }
     }
     InputTextureOptions(renderTexture.texture);
@@ -1057,12 +1054,10 @@ void PixelShader::DrawGUI(float dt) {
         Uniform* uniform = nullptr;
         ImGui::PushID(loc_count++);
         if (v.second<SAMPLER2D) {
-            if (other_uniform_buffers.count(p.first) >= 1) {
-                uniform = &other_uniform_buffers[p.first];
-            } else {
+            if (other_uniform_buffers.count(p.first) < 1) {
                 other_uniform_buffers.insert(std::make_pair(p.first, Uniform{0}));
-                uniform = &other_uniform_buffers[p.first];
             }
+            uniform = &other_uniform_buffers[p.first];
         }
         switch (v.second) {
             case INT:

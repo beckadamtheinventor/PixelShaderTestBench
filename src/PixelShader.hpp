@@ -33,8 +33,8 @@ typedef enum {
     SLIDER2,
     SLIDER3,
     SLIDER4,
-    MATRIX,
     SAMPLER2D,
+    MATRIX,
 } ShaderUniformType;
 class ShaderUniformData {
     public:

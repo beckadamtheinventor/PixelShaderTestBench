@@ -27,7 +27,8 @@ void main() {
 	float dist = length(dir);
 	dir = normalize(dir);
 	float LdotN = dot(dir, fragNormal);
-	vec3 light = ambientColor + lightColor * lightIntensity * max(LdotN, 0.0);
+	float intensity = lightIntensity * max(LdotN, 0.0) / (dist * dist);
+	vec3 light = ambientColor + lightColor * intensity;
 	vec3 col = diff.rgb * light;
 	gl_FragColor = vec4(col, 1.0);
 }
